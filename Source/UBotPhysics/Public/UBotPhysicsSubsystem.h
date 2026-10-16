@@ -9,6 +9,7 @@
 #include "UObject/ObjectKey.h"
 #include "UBotPhysicsSubsystem.generated.h"
 
+class UBodySetup;
 class UPrimitiveComponent;
 class UUBotPhysicsBindingComponent;
 class UUBotPhysicsSubsystem;
@@ -36,7 +37,8 @@ struct UBOTPHYSICS_API FUBotPhysicsTickFunction : public FTickFunction
  * backend, the table of which backend simulates which component, and the per-frame order: every frame in
  * TG_PrePhysics each solver is stepped on its own fixed step up to (never past) the uBot sim time, then the
  * poses of all bound bodies are written back to their components, attach parents before their children.
- * Components that are not bound stay with Chaos.
+ * Components that are not bound stay with Chaos. A backend that asks for it also sees them, as static and
+ * kinematic colliders (IUBotPhysicsSolver::UpdateScene).
  *
  * Bodies reach a backend through UUBotPhysicsBindingComponent; this subsystem is the C++ API behind it.
  * A backend that is unregistered while its bodies are bound loses them: they go back to Chaos, their
@@ -102,6 +104,16 @@ public:
      * leaves no steps to catch up. At most GetMaxStepsPerFrame() steps run per call; the steps beyond
      * that are skipped and counted by GetDroppedSteps.
      *
+     * The scene comes first: when some solver holds bodies and declares bStaticSceneGeometry or
+     * bKinematicForeignBodies, the world's components are scanned once (the cost grows with their number) and
+     * then, per solver that holds bodies, after its clock check and before its steps, also in a call where it
+     * takes no step, the solver is sent what changed in its scene (IUBotPhysicsSolver::UpdateScene). Poses
+     * are the components' at that moment, which is what the world shows when stepping starts: Chaos bodies
+     * show the result of its previous physics frame. A component is part of the scene when it is registered,
+     * has physics collision, carries no UBot::Physics::NoSceneTag (on itself or its actor) and
+     * GetCollisionShapes can export it; a Static or Stationary one is a static body, a Movable one a
+     * kinematic body. A solver does not see the components bound to its own backend or attached to them.
+     *
      * The write-back happens once per call, after every solver stepped, for each body whose state is
      * available, also when its solver did not step in this call. Bodies are written in ascending attach
      * depth (a component before the components attached to it), across backends, so that a bound child
@@ -118,6 +130,13 @@ public:
 
     /** Steps skipped because a frame needed more than GetMaxStepsPerFrame(); counted over the world's life. */
     int64 GetDroppedSteps(FName Backend) const;
+
+    /**
+     * What Backend's solver sees of the scene as of its last update: the static and kinematic bodies it was
+     * sent and their shapes. SkippedComponents is the count of the last scan of the world: components with
+     * physics collision that could not be exported. False (and all zero) when Backend has no solver in this world.
+     */
+    bool GetSceneStats(FName Backend, FUBotPhysicsSceneStats& OutStats) const;
 
     /** Most steps one solver runs in one frame. Default 1000. */
     int32 GetMaxStepsPerFrame() const { return MaxStepsPerFrame; }
@@ -156,6 +175,12 @@ private:
         bool bHasStepped = false;
         double LastStepEndSeconds = 0.0;
         bool bWarnedNonFinite = false;
+        /** Read from the factory when the solver was made; a factory's capabilities do not change. Nothing while the slot has no solver. */
+        FUBotPhysicsCapabilities Capabilities;
+        /** Ids of the scene bodies the solver was told about and has not been told to drop. Cleared when the slot loses its solver. */
+        TSet<int64> KnownSceneBodies;
+        /** What the solver sees of the scene as of its last update (SkippedComponents is not kept here). */
+        FUBotPhysicsSceneStats SceneStats;
     };
 
     /** A component handed to a backend. */
@@ -192,6 +217,25 @@ private:
         /** FBodySlot::Generation of the hand-over the state was read for. */
         int64 Generation = 0;
         TWeakPtr<IUBotPhysicsSolver> Solver;
+    };
+
+    /**
+     * One component of the world as the scene sees it, whoever simulates it. The shapes are extracted once; the
+     * record ends (and a new one with a new id starts) when the kind, the body setup object or the world scale
+     * changes, and when the component stops being part of the scene.
+     */
+    struct FSceneRecord
+    {
+        /** From NextSceneBodyId; names this record and nothing else. */
+        int64 Id = INDEX_NONE;
+        EUBotPhysicsSceneBodyKind Kind = EUBotPhysicsSceneBodyKind::Static;
+        TWeakObjectPtr<UPrimitiveComponent> Component;
+        TWeakObjectPtr<UBodySetup> BodySetup;
+        /** World scale of the component when the shapes were extracted. */
+        FVector WorldScale = FVector::OneVector;
+        TArray<FUBotPhysicsShape> Shapes;
+        float Friction = 0.0f;
+        float Restitution = 0.0f;
     };
 
     /** Records a failed bind in Binding, reports it, copies Error to OutError and returns false. */
@@ -240,6 +284,22 @@ private:
     /** Writes the state of every bound body back to its component, attach parents first. */
     void WriteBackPoses();
 
+    /** True when some solver holds bodies and declares a scene capability. */
+    bool IsSceneNeeded() const;
+
+    /** Scans the world's components and brings SceneRecords up to date; counts what could not be exported. */
+    void RefreshSceneRecords();
+
+    /** Adds to OutKeys the components bound to Backend and every primitive component attached (directly or further down) to them. */
+    void CollectOwnComponents(FName Backend, TSet<TObjectKey<UPrimitiveComponent>>& OutKeys) const;
+
+    /**
+     * Sends the solver of the slot what changed in its scene since its last update and remembers what it
+     * knows. The slot is not referenced across the call into the backend. False when the slot lost its
+     * solver while UpdateScene ran.
+     */
+    bool DeliverScene(int32 SlotIndex, const TSharedPtr<IUBotPhysicsSolver>& Solver, double SimTimeSeconds);
+
     FUBotPhysicsTickFunction TickFunction;
     TArray<FSolverSlot> Solvers;
     /** Keyed by object key, not by address: a destroyed component's address can be reused by another object. */
@@ -247,5 +307,11 @@ private:
     FDelegateHandle ExtensionsChangedHandle;
     /** Last hand-over generation given out; counts up for the life of the subsystem, never reused. */
     int64 NextBodyGeneration = 0;
+    /** The components that are part of the scene, keyed by object key; kept up to date by RefreshSceneRecords. */
+    TMap<TObjectKey<UPrimitiveComponent>, FSceneRecord> SceneRecords;
+    /** Last scene body id given out; counts up for the life of the subsystem, never reused. */
+    int64 NextSceneBodyId = 0;
+    /** Components with physics collision that the last scan could not export. */
+    int32 SceneSkippedComponents = 0;
     int32 MaxStepsPerFrame = 1000;
 };

@@ -12,6 +12,9 @@ namespace UBot::Physics
 
     /** Extension point for physics backends (IUBotPhysicsBackendFactory). Experimental. */
     inline const FName BackendExtensionPoint(TEXT("UBotPhysics.Backend"));
+
+    /** Actor or component tag that keeps a component out of every backend's scene. */
+    inline const FName NoSceneTag(TEXT("UBotPhysics.NoScene"));
 }
 
 class FUBotPhysicsModule final : public IModuleInterface

@@ -88,7 +88,7 @@ bool FUBotPhysicsPackageDescriptorTest::RunTest(const FString& Parameters)
 
     TestEqual(TEXT("Version"), Package->Version, FString(TEXT("0.1.0")));
     TestEqual(TEXT("Layer"), Package->Layer, EUBotPackageLayer::Capability);
-    TestEqual(TEXT("Provides"), FString::Join(Package->Provides, TEXT(",")), FString(TEXT("Physics.Backends,Physics.BodyBinding")));
+    TestEqual(TEXT("Provides"), FString::Join(Package->Provides, TEXT(",")), FString(TEXT("Physics.Backends,Physics.BodyBinding,Physics.SceneGeometry")));
     TestEqual(TEXT("Tags"), FString::Join(Package->Tags, TEXT(",")), FString(TEXT("physics")));
     TestTrue(TEXT("No engine plugins"), Package->ExternalRequires.IsEmpty());
     if (TestEqual(TEXT("One requirement"), Package->Requires.Num(), 1))

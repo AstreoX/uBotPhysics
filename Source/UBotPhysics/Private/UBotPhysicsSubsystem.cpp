@@ -7,6 +7,8 @@
 #include "Engine/Level.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
+#include "PhysicalMaterials/PhysicalMaterial.h"
+#include "PhysicsEngine/BodySetup.h"
 #include "UBotBodyState.h"
 #include "UBotClock.h"
 #include "UBotExtensionRegistry.h"
@@ -14,6 +16,7 @@
 #include "UBotPhysicsBackend.h"
 #include "UBotPhysicsBindingComponent.h"
 #include "UBotPhysicsStatus.h"
+#include "UBotUnits.h"
 
 #define LOCTEXT_NAMESPACE "UBotPhysics"
 
@@ -91,6 +94,16 @@ namespace UBot::Physics::Private
             ++Depth;
         }
         return Depth;
+    }
+
+    namespace
+    {
+        /** Body frame of a scene body in the world: the component's transform without scale, meters. */
+        FTransform MakeSceneTransform(const UPrimitiveComponent& Component)
+        {
+            const FTransform& ComponentToWorld = Component.GetComponentTransform();
+            return FTransform(ComponentToWorld.GetRotation(), UBot::Units::CentimetersToMeters(ComponentToWorld.GetLocation()));
+        }
     }
 
     /** Looks up the components the binding hands over. Returns false with OutError set if one cannot be a body. */
@@ -232,6 +245,7 @@ void UUBotPhysicsSubsystem::Deinitialize()
     }
 
     Solvers.Empty();
+    SceneRecords.Empty();
 
     Super::Deinitialize();
 }
@@ -508,6 +522,12 @@ void UUBotPhysicsSubsystem::AdvanceTo(double SimTimeSeconds)
 
     ReleaseStaleBodies();
 
+    // The world's components are scanned once per call, and only when some solver is going to ask for them.
+    if (IsSceneNeeded())
+    {
+        RefreshSceneRecords();
+    }
+
     // Solvers is indexed, not iterated: a backend may bind further bodies while it steps. Slots are never
     // removed, only emptied, so an index stays valid.
     for (int32 SlotIndex = 0; SlotIndex < Solvers.Num(); ++SlotIndex)
@@ -530,14 +550,22 @@ void UUBotPhysicsSubsystem::AdvanceTo(double SimTimeSeconds)
             continue;
         }
 
-        FSolverSlot& Slot = Solvers[SlotIndex];
-        if (!Slot.bClockRunning)
+        if (!Solvers[SlotIndex].bClockRunning)
         {
-            Slot.DroppedBefore += Slot.Scheduler.GetDroppedSampleCount();
-            Slot.Scheduler.Reset(1.0 / StepSeconds, SimTimeSeconds + StepSeconds);
-            Slot.bClockRunning = true;
+            FSolverSlot& StartingSlot = Solvers[SlotIndex];
+            StartingSlot.DroppedBefore += StartingSlot.Scheduler.GetDroppedSampleCount();
+            StartingSlot.Scheduler.Reset(1.0 / StepSeconds, SimTimeSeconds + StepSeconds);
+            StartingSlot.bClockRunning = true;
         }
 
+        // The solver sees the scene before it steps, also in a frame where it takes no step. UpdateScene is the
+        // backend's code too: the solver is held, and its steps are skipped if the slot let it go meanwhile.
+        if (!DeliverScene(SlotIndex, Solver, SimTimeSeconds))
+        {
+            continue;
+        }
+
+        FSolverSlot& Slot = Solvers[SlotIndex];
         double FirstDueSeconds = 0.0;
         const int32 StepCount = Slot.Scheduler.ConsumeDueSteps(SimTimeSeconds, MaxStepsPerFrame, &FirstDueSeconds);
         if (StepCount <= 0)
@@ -577,6 +605,19 @@ int64 UUBotPhysicsSubsystem::GetDroppedSteps(FName Backend) const
 {
     const FSolverSlot* Slot = FindSolverSlot(Backend);
     return Slot != nullptr ? Slot->DroppedBefore + Slot->Scheduler.GetDroppedSampleCount() : 0;
+}
+
+bool UUBotPhysicsSubsystem::GetSceneStats(FName Backend, FUBotPhysicsSceneStats& OutStats) const
+{
+    const FSolverSlot* Slot = FindSolverSlot(Backend);
+    if (Slot == nullptr || !Slot->Solver.IsValid())
+    {
+        OutStats = FUBotPhysicsSceneStats();
+        return false;
+    }
+    OutStats = Slot->SceneStats;
+    OutStats.SkippedComponents = SceneSkippedComponents;
+    return true;
 }
 
 void UUBotPhysicsSubsystem::SetMaxStepsPerFrame(int32 Value)
@@ -701,6 +742,10 @@ int32 UUBotPhysicsSubsystem::FindOrCreateSolverSlotIndex(FName Backend, const TS
         return INDEX_NONE;
     }
 
+    // A factory's capabilities do not change, so they are read once, here. This is the backend's code too, so it
+    // runs before the slot is referenced.
+    const FUBotPhysicsCapabilities Capabilities = Factory->GetCapabilities();
+
     // The slot takes the new solver only while it is still empty. A solver that got there meanwhile is the one the
     // slot's bodies belong to: the new one is dropped when this call returns, and the slot's is used. An empty
     // slot holds no bodies, so the body count is left alone: it is never reset here.
@@ -709,6 +754,10 @@ int32 UUBotPhysicsSubsystem::FindOrCreateSolverSlotIndex(FName Backend, const TS
     {
         Slot.Solver = Solver;
         Slot.Factory = Factory;
+        Slot.Capabilities = Capabilities;
+        // The new solver knows nothing of the scene yet: its first update brings all of it.
+        Slot.KnownSceneBodies.Reset();
+        Slot.SceneStats = FUBotPhysicsSceneStats();
         Slot.bClockRunning = false;
         Slot.bHasStepped = false;
         Slot.LastStepEndSeconds = 0.0;
@@ -798,6 +847,10 @@ void UUBotPhysicsSubsystem::ReleaseBackend(FName Backend)
         // The slot stays: the dropped step count is kept, and the next solver of this backend reuses it.
         Slot->Solver.Reset();
         Slot->Factory.Reset();
+        Slot->Capabilities = FUBotPhysicsCapabilities();
+        // The next solver of this backend gets the whole scene in its first update.
+        Slot->KnownSceneBodies.Reset();
+        Slot->SceneStats = FUBotPhysicsSceneStats();
         Slot->BodyCount = 0;
         Slot->bClockRunning = false;
         Slot->bHasStepped = false;
@@ -963,6 +1016,258 @@ void UUBotPhysicsSubsystem::WriteBackPoses()
             UE_LOG(LogUBotPhysics, Warning, TEXT("Physics backend '%s' reported a state that is not finite; the pose of that body is not written back."), *Solvers[SlotIndex].Backend.ToString());
         }
     }
+}
+
+bool UUBotPhysicsSubsystem::IsSceneNeeded() const
+{
+    for (const FSolverSlot& Slot : Solvers)
+    {
+        if (Slot.Solver.IsValid() && Slot.BodyCount > 0 && (Slot.Capabilities.bStaticSceneGeometry || Slot.Capabilities.bKinematicForeignBodies))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+void UUBotPhysicsSubsystem::RefreshSceneRecords()
+{
+    const UWorld* World = GetWorld();
+    if (World == nullptr)
+    {
+        return;
+    }
+
+    // Every loaded level; the persistent level is listed explicitly because a world that is not fully initialized
+    // does not list it among its levels yet.
+    TArray<const ULevel*, TInlineAllocator<4>> Levels;
+    const ULevel* PersistentLevel = World->PersistentLevel;
+    if (PersistentLevel != nullptr)
+    {
+        Levels.Add(PersistentLevel);
+    }
+    for (const ULevel* Level : World->GetLevels())
+    {
+        if (Level != nullptr && Level != PersistentLevel)
+        {
+            Levels.Add(Level);
+        }
+    }
+
+    TSet<TObjectKey<UPrimitiveComponent>> Current;
+    Current.Reserve(SceneRecords.Num());
+    int32 Skipped = 0;
+
+    for (const ULevel* Level : Levels)
+    {
+        for (AActor* Actor : Level->Actors)
+        {
+            if (!IsValid(Actor) || Actor->IsActorBeingDestroyed())
+            {
+                continue;
+            }
+
+            TInlineComponentArray<UPrimitiveComponent*> Components(Actor);
+            for (UPrimitiveComponent* Component : Components)
+            {
+                if (!IsValid(Component) || !Component->IsRegistered() || Component->IsBeingDestroyed())
+                {
+                    continue;
+                }
+                if (!CollisionEnabledHasPhysics(Component->GetCollisionEnabled()))
+                {
+                    continue;
+                }
+                if (Component->ComponentHasTag(UBot::Physics::NoSceneTag) || Actor->ActorHasTag(UBot::Physics::NoSceneTag))
+                {
+                    continue;
+                }
+
+                const EUBotPhysicsSceneBodyKind Kind = Component->Mobility == EComponentMobility::Movable
+                    ? EUBotPhysicsSceneBodyKind::Kinematic : EUBotPhysicsSceneBodyKind::Static;
+                const FVector WorldScale = Component->GetComponentTransform().GetScale3D();
+                const TObjectKey<UPrimitiveComponent> Key(Component);
+                UBodySetup* BodySetup = Component->GetBodySetup();
+
+                // The shapes are extracted once: the record stays while the kind, the body setup object and the scale do.
+                const FSceneRecord* Existing = SceneRecords.Find(Key);
+                if (Existing != nullptr && BodySetup != nullptr && Existing->Kind == Kind && Existing->BodySetup.Get() == BodySetup
+                    && Existing->WorldScale.Equals(WorldScale, 1.e-6))
+                {
+                    Current.Add(Key);
+                    continue;
+                }
+
+                TArray<FUBotPhysicsShape> Shapes;
+                if (!UBot::Physics::GetCollisionShapes(*Component, Shapes))
+                {
+                    // A record this component had ends with the scan: it is not among the current ones.
+                    ++Skipped;
+                    continue;
+                }
+
+                // A new export gets a new id, also when it replaces a record whose kind, setup or scale changed.
+                FSceneRecord& Record = SceneRecords.FindOrAdd(Key);
+                Record = FSceneRecord();
+                Record.Id = ++NextSceneBodyId;
+                Record.Kind = Kind;
+                Record.Component = Component;
+                Record.BodySetup = BodySetup;
+                Record.WorldScale = WorldScale;
+                Record.Shapes = MoveTemp(Shapes);
+
+                const UPhysicalMaterial* Material = Component->BodyInstance.GetSimplePhysicalMaterial();
+                if (Material == nullptr && GEngine != nullptr)
+                {
+                    Material = GEngine->DefaultPhysMaterial;
+                }
+                if (Material != nullptr)
+                {
+                    Record.Friction = Material->Friction;
+                    Record.Restitution = Material->Restitution;
+                }
+                Current.Add(Key);
+            }
+        }
+    }
+
+    // Components that are gone, no longer have physics collision, were tagged out or cannot be exported any more.
+    for (auto It = SceneRecords.CreateIterator(); It; ++It)
+    {
+        if (!Current.Contains(It.Key()))
+        {
+            It.RemoveCurrent();
+        }
+    }
+    SceneSkippedComponents = Skipped;
+}
+
+void UUBotPhysicsSubsystem::CollectOwnComponents(FName Backend, TSet<TObjectKey<UPrimitiveComponent>>& OutKeys) const
+{
+    TArray<const USceneComponent*, TInlineAllocator<16>> Pending;
+    for (const TPair<TObjectKey<UPrimitiveComponent>, FBodySlot>& Pair : Bodies)
+    {
+        if (Pair.Value.Backend == Backend)
+        {
+            if (const UPrimitiveComponent* Component = Pair.Value.Component.Get())
+            {
+                Pending.Add(Component);
+            }
+        }
+    }
+
+    // The attach children are followed down; the visited set only guards against a corrupt (cyclic) attach graph.
+    TSet<const USceneComponent*> Visited;
+    while (!Pending.IsEmpty())
+    {
+        const USceneComponent* Component = Pending.Pop();
+        bool bAlreadyVisited = false;
+        Visited.Add(Component, &bAlreadyVisited);
+        if (bAlreadyVisited)
+        {
+            continue;
+        }
+        if (const UPrimitiveComponent* Primitive = Cast<UPrimitiveComponent>(Component))
+        {
+            OutKeys.Add(TObjectKey<UPrimitiveComponent>(Primitive));
+        }
+        for (const USceneComponent* Child : Component->GetAttachChildren())
+        {
+            if (Child != nullptr)
+            {
+                Pending.Add(Child);
+            }
+        }
+    }
+}
+
+bool UUBotPhysicsSubsystem::DeliverScene(int32 SlotIndex, const TSharedPtr<IUBotPhysicsSolver>& Solver, double SimTimeSeconds)
+{
+    FSolverSlot& Slot = Solvers[SlotIndex];
+    const bool bWantsStatic = Slot.Capabilities.bStaticSceneGeometry;
+    const bool bWantsKinematic = Slot.Capabilities.bKinematicForeignBodies;
+    if (!bWantsStatic && !bWantsKinematic)
+    {
+        return true;
+    }
+
+    // What this solver may see: the records of the kinds it asks for, except the components that are its own
+    // bodies or ride on them.
+    TSet<TObjectKey<UPrimitiveComponent>> OwnComponents;
+    CollectOwnComponents(Slot.Backend, OwnComponents);
+
+    FUBotPhysicsSceneUpdate Update;
+    Update.SimTimeSeconds = SimTimeSeconds;
+    TSet<int64> Eligible;
+    Eligible.Reserve(SceneRecords.Num());
+    FUBotPhysicsSceneStats Stats;
+
+    for (const TPair<TObjectKey<UPrimitiveComponent>, FSceneRecord>& Pair : SceneRecords)
+    {
+        const FSceneRecord& Record = Pair.Value;
+        const bool bKinematic = Record.Kind == EUBotPhysicsSceneBodyKind::Kinematic;
+        const UPrimitiveComponent* Component = Record.Component.Get();
+        if (Component == nullptr || !(bKinematic ? bWantsKinematic : bWantsStatic) || OwnComponents.Contains(Pair.Key))
+        {
+            continue;
+        }
+
+        Eligible.Add(Record.Id);
+        if (bKinematic)
+        {
+            ++Stats.KinematicBodies;
+        }
+        else
+        {
+            ++Stats.StaticBodies;
+        }
+        Stats.Shapes += Record.Shapes.Num();
+
+        const FTransform WorldTransform = UBot::Physics::Private::MakeSceneTransform(*Component);
+        if (!Slot.KnownSceneBodies.Contains(Record.Id))
+        {
+            FUBotPhysicsSceneBody& Body = Update.Added.AddDefaulted_GetRef();
+            Body.Id = Record.Id;
+            Body.Component = Record.Component;
+            Body.Kind = Record.Kind;
+            Body.WorldTransform = WorldTransform;
+            Body.Shapes = Record.Shapes;
+            Body.Friction = Record.Friction;
+            Body.Restitution = Record.Restitution;
+        }
+        if (bKinematic)
+        {
+            FUBotPhysicsScenePose& Pose = Update.KinematicPoses.AddDefaulted_GetRef();
+            Pose.Id = Record.Id;
+            Pose.WorldTransform = WorldTransform;
+        }
+    }
+
+    for (const int64 KnownId : Slot.KnownSceneBodies)
+    {
+        if (!Eligible.Contains(KnownId))
+        {
+            Update.Removed.Add(KnownId);
+        }
+    }
+
+    // The same order on every run, whatever the order of the records.
+    Update.Removed.Sort();
+    Update.Added.Sort([](const FUBotPhysicsSceneBody& A, const FUBotPhysicsSceneBody& B) { return A.Id < B.Id; });
+    Update.KinematicPoses.Sort([](const FUBotPhysicsScenePose& A, const FUBotPhysicsScenePose& B) { return A.Id < B.Id; });
+
+    // The slot knows what the solver is about to be told before the solver is called.
+    Slot.KnownSceneBodies = MoveTemp(Eligible);
+    Slot.SceneStats = Stats;
+
+    if (Update.Removed.IsEmpty() && Update.Added.IsEmpty() && Update.KinematicPoses.IsEmpty())
+    {
+        return true;
+    }
+
+    // The backend's code: Slot is not used again, and the slot may have lost the solver by the time this returns.
+    Solver->UpdateScene(Update);
+    return Solvers.IsValidIndex(SlotIndex) && Solvers[SlotIndex].Solver == Solver;
 }
 
 #undef LOCTEXT_NAMESPACE

@@ -32,3 +32,14 @@ int64 UUBotPhysicsLibrary::GetDroppedPhysicsSteps(const UObject* WorldContextObj
     const UUBotPhysicsSubsystem* Subsystem = UUBotPhysicsSubsystem::Get(WorldContextObject);
     return Subsystem != nullptr ? Subsystem->GetDroppedSteps(Backend) : 0;
 }
+
+bool UUBotPhysicsLibrary::GetPhysicsSceneStats(const UObject* WorldContextObject, FName Backend, FUBotPhysicsSceneStats& Stats)
+{
+    const UUBotPhysicsSubsystem* Subsystem = UUBotPhysicsSubsystem::Get(WorldContextObject);
+    if (Subsystem == nullptr)
+    {
+        Stats = FUBotPhysicsSceneStats();
+        return false;
+    }
+    return Subsystem->GetSceneStats(Backend, Stats);
+}

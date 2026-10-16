@@ -117,7 +117,8 @@
         "UUBotPhysicsLibrary.GetBodyPhysicsBackend",
         "UUBotPhysicsLibrary.GetDroppedPhysicsSteps",
         "UUBotPhysicsLibrary.GetPhysicsBackendCapabilities",
-        "UUBotPhysicsLibrary.GetPhysicsBackendNames"
+        "UUBotPhysicsLibrary.GetPhysicsBackendNames",
+        "UUBotPhysicsLibrary.GetPhysicsSceneStats"
       ]
     }
   ],
@@ -427,6 +428,110 @@
       ]
     },
     {
+      "id": "Break:FUBotPhysicsSceneStats",
+      "kind": "break",
+      "title": "Break UBot Physics Scene Stats",
+      "subtitle": "",
+      "owner": "",
+      "member": "",
+      "category": "Utilities|Struct",
+      "tooltip": "Adds a node that breaks a 'UBot Physics Scene Stats' into its member fields",
+      "keywords": "",
+      "flags": {
+        "static": false,
+        "latent": false,
+        "deprecated": false,
+        "developmentOnly": false,
+        "callInEditor": false,
+        "compact": false
+      },
+      "compactTitle": "",
+      "inputs": [
+        {
+          "id": "UBotPhysicsSceneStats",
+          "name": "UBot Physics Scene Stats",
+          "type": {
+            "category": "struct",
+            "subtype": "FUBotPhysicsSceneStats",
+            "subtypeDisplay": "UBot Physics Scene Stats",
+            "container": "none",
+            "valueType": null,
+            "byRef": true,
+            "const": true
+          },
+          "default": "",
+          "advanced": false,
+          "tooltip": ""
+        }
+      ],
+      "outputs": [
+        {
+          "id": "StaticBodies",
+          "name": "Static Bodies",
+          "type": {
+            "category": "int",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": false,
+          "tooltip": "Static colliders handed to the backend."
+        },
+        {
+          "id": "KinematicBodies",
+          "name": "Kinematic Bodies",
+          "type": {
+            "category": "int",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": false,
+          "tooltip": "Kinematic (moving) colliders handed to the backend."
+        },
+        {
+          "id": "Shapes",
+          "name": "Shapes",
+          "type": {
+            "category": "int",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": false,
+          "tooltip": "Shapes of those bodies."
+        },
+        {
+          "id": "SkippedComponents",
+          "name": "Skipped Components",
+          "type": {
+            "category": "int",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": false,
+          "tooltip": "Components of the world with physics collision that could not be exported (unsupported type or shapes, no body setup)."
+        }
+      ]
+    },
+    {
       "id": "Make:FUBotPhysicsBodyBinding",
       "kind": "make",
       "title": "Make UBot Physics Body Binding",
@@ -493,6 +598,45 @@
             "category": "struct",
             "subtype": "FUBotPhysicsCapabilities",
             "subtypeDisplay": "UBot Physics Capabilities",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": false,
+          "tooltip": ""
+        }
+      ]
+    },
+    {
+      "id": "Make:FUBotPhysicsSceneStats",
+      "kind": "make",
+      "title": "Make UBot Physics Scene Stats",
+      "subtitle": "",
+      "owner": "",
+      "member": "",
+      "category": "Utilities|Struct",
+      "tooltip": "Adds a node that create a 'UBot Physics Scene Stats' from its members",
+      "keywords": "",
+      "flags": {
+        "static": false,
+        "latent": false,
+        "deprecated": false,
+        "developmentOnly": false,
+        "callInEditor": false,
+        "compact": false
+      },
+      "compactTitle": "",
+      "inputs": [],
+      "outputs": [
+        {
+          "id": "UBotPhysicsSceneStats",
+          "name": "UBot Physics Scene Stats",
+          "type": {
+            "category": "struct",
+            "subtype": "FUBotPhysicsSceneStats",
+            "subtypeDisplay": "UBot Physics Scene Stats",
             "container": "none",
             "valueType": null,
             "byRef": false,
@@ -1059,6 +1203,78 @@
           "tooltip": ""
         }
       ]
+    },
+    {
+      "id": "UUBotPhysicsLibrary.GetPhysicsSceneStats",
+      "kind": "pure",
+      "title": "Get Physics Scene Stats",
+      "subtitle": "",
+      "owner": "UUBotPhysicsLibrary",
+      "member": "GetPhysicsSceneStats",
+      "category": "uBot|Physics",
+      "tooltip": "What Backend currently sees of this world's scene: the static and kinematic colliders it was last sent, their\nshapes, and how many components with physics collision could not be exported. False (and all zero) if the\nbackend has no solver in this world.",
+      "keywords": "scene collider static kinematic mocap geometry",
+      "flags": {
+        "static": true,
+        "latent": false,
+        "deprecated": false,
+        "developmentOnly": false,
+        "callInEditor": false,
+        "compact": false
+      },
+      "compactTitle": "",
+      "inputs": [
+        {
+          "id": "Backend",
+          "name": "Backend",
+          "type": {
+            "category": "name",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "None",
+          "advanced": false,
+          "tooltip": ""
+        }
+      ],
+      "outputs": [
+        {
+          "id": "Stats",
+          "name": "Stats",
+          "type": {
+            "category": "struct",
+            "subtype": "FUBotPhysicsSceneStats",
+            "subtypeDisplay": "UBot Physics Scene Stats",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": false,
+          "tooltip": ""
+        },
+        {
+          "id": "ReturnValue",
+          "name": "Return Value",
+          "type": {
+            "category": "bool",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": false,
+          "tooltip": ""
+        }
+      ]
     }
   ],
   "structs": [
@@ -1293,6 +1509,77 @@
       ],
       "make": "Make:FUBotPhysicsCapabilities",
       "break": "Break:FUBotPhysicsCapabilities"
+    },
+    {
+      "id": "FUBotPhysicsSceneStats",
+      "displayName": "UBot Physics Scene Stats",
+      "module": "UBotPhysics",
+      "header": "Source/UBotPhysics/Public/UBotPhysicsTypes.h",
+      "tooltip": "What one backend currently sees of the UE scene.",
+      "fields": [
+        {
+          "id": "KinematicBodies",
+          "displayName": "Kinematic Bodies",
+          "type": {
+            "category": "int",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "tooltip": "Kinematic (moving) colliders handed to the backend.",
+          "access": "readOnly"
+        },
+        {
+          "id": "Shapes",
+          "displayName": "Shapes",
+          "type": {
+            "category": "int",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "tooltip": "Shapes of those bodies.",
+          "access": "readOnly"
+        },
+        {
+          "id": "SkippedComponents",
+          "displayName": "Skipped Components",
+          "type": {
+            "category": "int",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "tooltip": "Components of the world with physics collision that could not be exported (unsupported type or shapes, no body setup).",
+          "access": "readOnly"
+        },
+        {
+          "id": "StaticBodies",
+          "displayName": "Static Bodies",
+          "type": {
+            "category": "int",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "tooltip": "Static colliders handed to the backend.",
+          "access": "readOnly"
+        }
+      ],
+      "make": "Make:FUBotPhysicsSceneStats",
+      "break": "Break:FUBotPhysicsSceneStats"
     }
   ],
   "enums": [

@@ -3,7 +3,7 @@
     "Version": 1,
     "VersionName": "0.1.0",
     "FriendlyName": "uBot Physics",
-    "Description": "Physics backends side by side in one UE world: each bound body is simulated by one backend, stepped on the uBot sim clock and written back to its UE component. Everything else stays with Chaos.",
+    "Description": "Physics backends side by side in one UE world: each bound body is simulated by one backend, stepped on the uBot sim clock and written back to its UE component, and a backend can see the rest of the scene as static and kinematic colliders. Everything else stays with Chaos.",
     "Category": "uBot",
     "CreatedBy": "AstreoX",
     "CreatedByURL": "https://github.com/AstreoX",
@@ -34,7 +34,8 @@
         ],
         "Provides": [
             "Physics.Backends",
-            "Physics.BodyBinding"
+            "Physics.BodyBinding",
+            "Physics.SceneGeometry"
         ],
         "Tags": [
             "physics"

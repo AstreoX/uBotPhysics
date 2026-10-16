@@ -13,5 +13,13 @@ public class UBotPhysics : ModuleRules
             "Engine",
             "UBotCore"
         });
+
+        // Collision shapes of the scene: body setups (PhysicsCore) and the triangle meshes Chaos holds.
+        PrivateDependencyModuleNames.AddRange(new[]
+        {
+            "ChaosCore",
+            "Chaos",
+            "PhysicsCore"
+        });
     }
 }

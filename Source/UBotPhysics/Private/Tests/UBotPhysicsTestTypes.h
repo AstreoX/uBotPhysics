@@ -67,9 +67,58 @@ namespace UBotPhysicsTests
     /** The test solver refuses bodies with this name. */
     inline const FName RejectBodyName(TEXT("Reject"));
 
+    /** What the test factory reports unless a test sets something else: rigid bodies, kinematic foreign bodies, determinism. */
+    inline FUBotPhysicsCapabilities MakeDefaultCapabilities()
+    {
+        FUBotPhysicsCapabilities Capabilities;
+        Capabilities.bRigidBodies = true;
+        Capabilities.bKinematicForeignBodies = true;
+        Capabilities.bDeterministic = true;
+        return Capabilities;
+    }
+
+    /** Rigid bodies and determinism, plus the two scene capabilities as given. */
+    inline FUBotPhysicsCapabilities MakeSceneCapabilities(bool bStaticSceneGeometry, bool bKinematicForeignBodies)
+    {
+        FUBotPhysicsCapabilities Capabilities;
+        Capabilities.bRigidBodies = true;
+        Capabilities.bDeterministic = true;
+        Capabilities.bStaticSceneGeometry = bStaticSceneGeometry;
+        Capabilities.bKinematicForeignBodies = bKinematicForeignBodies;
+        return Capabilities;
+    }
+
+    /** A scene body as the test solver knows it: what its updates said, the latest pose included. */
+    struct FSceneBodyView
+    {
+        TWeakObjectPtr<UPrimitiveComponent> Component;
+        EUBotPhysicsSceneBodyKind Kind = EUBotPhysicsSceneBodyKind::Static;
+        FTransform WorldTransform = FTransform::Identity;
+        TArray<FUBotPhysicsShape> Shapes;
+        float Friction = 0.0f;
+        float Restitution = 0.0f;
+    };
+
+    /** One UpdateScene call the test solver received. */
+    struct FSceneCall
+    {
+        /** A copy of what the solver was given. */
+        FUBotPhysicsSceneUpdate Update;
+        /** Steps the solver had taken when the call came. */
+        int32 StepsBefore = 0;
+    };
+
+    /** Which callbacks of the test solver ran, in order (steps and scene updates). */
+    enum class ESolverCall : uint8
+    {
+        Step,
+        UpdateScene
+    };
+
     /**
      * Solver of the test backend: every body moves on a straight line at the velocity (and yaws at the rate) of
-     * the test binding that handed it over; a body without such a binding stands still. Records what it was asked.
+     * the test binding that handed it over; a body without such a binding stands still. Records what it was asked,
+     * the scene updates included: every call (SceneCalls, CallLog) and the scene as the updates add up to (SceneView).
      */
     class FUBotPhysicsTestSolver final : public IUBotPhysicsSolver
     {
@@ -148,6 +197,7 @@ namespace UBotPhysicsTests
 
         virtual void Step(double StepEndTimeSeconds) override
         {
+            CallLog.Add(ESolverCall::Step);
             StepEndTimes.Add(StepEndTimeSeconds);
             for (TPair<int32, FBody>& Pair : Bodies)
             {
@@ -168,6 +218,83 @@ namespace UBotPhysicsTests
             OutState.LinearVelocityMetersPerSecond = Body->VelocityMetersPerSecond;
             OutState.AngularVelocityRadiansPerSecond = FVector(0.0, 0.0, Body->YawRateRadiansPerSecond);
             return true;
+        }
+
+        virtual void UpdateScene(const FUBotPhysicsSceneUpdate& Update) override
+        {
+            CallLog.Add(ESolverCall::UpdateScene);
+            FSceneCall& Call = SceneCalls.AddDefaulted_GetRef();
+            Call.Update = Update;
+            Call.StepsBefore = StepEndTimes.Num();
+
+            // Applied the way a backend has to: removals first, then additions, then the poses of the kinematic bodies.
+            for (const int64 Id : Update.Removed)
+            {
+                if (SceneView.Remove(Id) == 0)
+                {
+                    ++UnknownRemovals;
+                }
+            }
+            for (const FUBotPhysicsSceneBody& Body : Update.Added)
+            {
+                if (SceneView.Contains(Body.Id))
+                {
+                    ++DuplicateAdds;
+                }
+                FSceneBodyView& View = SceneView.FindOrAdd(Body.Id);
+                View.Component = Body.Component;
+                View.Kind = Body.Kind;
+                View.WorldTransform = Body.WorldTransform;
+                View.Shapes = Body.Shapes;
+                View.Friction = Body.Friction;
+                View.Restitution = Body.Restitution;
+            }
+            for (const FUBotPhysicsScenePose& Pose : Update.KinematicPoses)
+            {
+                if (FSceneBodyView* View = SceneView.Find(Pose.Id))
+                {
+                    View->WorldTransform = Pose.WorldTransform;
+                }
+                else
+                {
+                    ++UnknownPoses;
+                }
+            }
+        }
+
+        /** Number of scene bodies of Kind the solver knows. */
+        int32 CountSceneBodies(EUBotPhysicsSceneBodyKind Kind) const
+        {
+            int32 Count = 0;
+            for (const TPair<int64, FSceneBodyView>& Pair : SceneView)
+            {
+                Count += Pair.Value.Kind == Kind ? 1 : 0;
+            }
+            return Count;
+        }
+
+        /** Number of shapes of all scene bodies the solver knows. */
+        int32 CountSceneShapes() const
+        {
+            int32 Count = 0;
+            for (const TPair<int64, FSceneBodyView>& Pair : SceneView)
+            {
+                Count += Pair.Value.Shapes.Num();
+            }
+            return Count;
+        }
+
+        /** Id the solver knows Component under, or INDEX_NONE. */
+        int64 FindSceneBodyId(const UPrimitiveComponent* Component) const
+        {
+            for (const TPair<int64, FSceneBodyView>& Pair : SceneView)
+            {
+                if (Pair.Value.Component.Get() == Component)
+                {
+                    return Pair.Key;
+                }
+            }
+            return INDEX_NONE;
         }
 
         const FBody* FindBody(int32 BodyHandle) const
@@ -192,6 +319,16 @@ namespace UBotPhysicsTests
         bool bReuseHandles = false;
         /** Every handle AddBody gave out, in order. */
         TArray<int32> IssuedHandles;
+        /** Every UpdateScene call, in order. */
+        TArray<FSceneCall> SceneCalls;
+        /** Steps and scene updates in the order they were called. */
+        TArray<ESolverCall> CallLog;
+        /** The scene bodies the updates add up to, by id. */
+        TMap<int64, FSceneBodyView> SceneView;
+        /** Removals of ids the solver did not know, additions of ids it already knew and poses of ids it did not know: a protocol breach each. */
+        int32 UnknownRemovals = 0;
+        int32 DuplicateAdds = 0;
+        int32 UnknownPoses = 0;
 
     private:
         TMap<int32, FBody> Bodies;
@@ -216,10 +353,6 @@ namespace UBotPhysicsTests
 
         virtual FUBotPhysicsCapabilities GetCapabilities() const override
         {
-            FUBotPhysicsCapabilities Capabilities;
-            Capabilities.bRigidBodies = true;
-            Capabilities.bKinematicForeignBodies = true;
-            Capabilities.bDeterministic = true;
             return Capabilities;
         }
 
@@ -248,6 +381,11 @@ namespace UBotPhysicsTests
 
         double StepSeconds = 0.01;
         FName Name;
+        /**
+         * What GetCapabilities reports. The subsystem reads it when it creates the solver, so set it before the first
+         * Bind. The default is MakeDefaultCapabilities().
+         */
+        FUBotPhysicsCapabilities Capabilities = MakeDefaultCapabilities();
         bool bFailCreate = false;
         int32 CreateCalls = 0;
         /** The solver made last; expires when the subsystem lets it go. */

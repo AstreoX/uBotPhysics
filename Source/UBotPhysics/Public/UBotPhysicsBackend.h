@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "UBotBodyState.h"
 #include "UBotExtensionRegistry.h"
+#include "UBotPhysicsScene.h"
 #include "UBotPhysicsTypes.h"
 #include "UObject/WeakObjectPtrTemplates.h"
 
@@ -31,11 +32,12 @@ struct FUBotPhysicsBodyDesc
  * only. Experimental: the interface may change between minor versions while it has few implementations.
  *
  * The subsystem calls Step on the uBot sim clock (see UUBotPhysicsSubsystem) and writes the poses of the
- * bodies back to their components after the steps of a frame. Controls are not part of this interface: a
- * backend's own components implement the uBotCore actuation interfaces and feed their solver directly.
+ * bodies back to their components after the steps of a frame. Before the steps it can hand the solver the
+ * rest of the UE scene as static and kinematic bodies (UpdateScene). Controls are not part of this interface:
+ * a backend's own components implement the uBotCore actuation interfaces and feed their solver directly.
  *
  * Re-entry is not supported: the callbacks of a solver and of its factory (CreateSolver, AddBody, RemoveBody,
- * Step, GetBodyState) must not bind or unbind bodies, and must not register or unregister backends,
+ * Step, GetBodyState, UpdateScene) must not bind or unbind bodies, and must not register or unregister backends,
  * synchronously (directly or through code they call). The subsystem defends against the known cases (a
  * backend that unregisters or replaces itself inside CreateSolver or AddBody, a bind that comes in while
  * CreateSolver runs, bodies that are unbound or rebound by a transform callback during the write-back), but
@@ -67,6 +69,21 @@ public:
      * backend name when the solver leaves it None.
      */
     virtual bool GetBodyState(int32 BodyHandle, FUBotBodyState& OutState) const = 0;
+
+    /**
+     * The rest of the UE scene, as the backend's capabilities ask for it: bStaticSceneGeometry brings the
+     * static colliders, bKinematicForeignBodies the moving ones that something else moves. Called at most
+     * once per frame, before the frame's steps, when something changed or kinematic bodies exist; never for
+     * a backend that declares neither capability. The default ignores it.
+     *
+     * Update.Removed is handled before Update.Added. An Id names one export of one component and nothing
+     * else. A component that stops being part of the scene (destroyed, collision off, tagged out) or whose
+     * body setup, world scale or mobility changes leaves under its Id and comes back under a new one. A body
+     * that only dropped out of this solver's scene because this backend took the component over returns under
+     * the Id it had. Shapes, units and frames are described at FUBotPhysicsShape;
+     * UBot::Physics::GetCollisionShapes gives the same shapes for a backend's own bodies.
+     */
+    virtual void UpdateScene(const FUBotPhysicsSceneUpdate& Update) {}
 };
 
 /**

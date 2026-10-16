@@ -29,4 +29,12 @@ public:
     /** Steps the backend skipped in this world because one frame needed more than the per-frame limit. */
     UFUNCTION(BlueprintPure, Category = "uBot|Physics", meta = (WorldContext = "WorldContextObject", DisplayName = "Get Dropped Physics Steps", Keywords = "physics backend dropped skipped steps"))
     static int64 GetDroppedPhysicsSteps(const UObject* WorldContextObject, FName Backend);
+
+    /**
+     * What Backend currently sees of this world's scene: the static and kinematic colliders it was last sent, their
+     * shapes, and how many components with physics collision could not be exported. False (and all zero) if the
+     * backend has no solver in this world.
+     */
+    UFUNCTION(BlueprintPure, Category = "uBot|Physics", meta = (WorldContext = "WorldContextObject", DisplayName = "Get Physics Scene Stats", Keywords = "scene collider static kinematic mocap geometry"))
+    static bool GetPhysicsSceneStats(const UObject* WorldContextObject, FName Backend, FUBotPhysicsSceneStats& Stats);
 };

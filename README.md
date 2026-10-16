@@ -8,11 +8,12 @@
 
 ## 简介
 
-uBotPhysics 是 uBot 家族的多物理后端插件，为 UE 5.5 提供一种做法：**同一个关卡里，不同的物体由不同的物理后端计算**。UE 自带的 Chaos 仍是默认，没有被绑定的物体都归它；被绑定的物体交给指定的后端，后端按 uBot 仿真时间以自己的固定步长推进，每帧把结果写回对应的 UE 组件。它建立在 [uBotCore](https://github.com/AstreoX/uBotCore) 之上。
+uBotPhysics 是 uBot 家族的多物理后端插件，为 UE 5.5 提供一种做法：**同一个关卡里，不同的物体由不同的物理后端计算**。UE 自带的 Chaos 仍是默认，没有被绑定的物体都归它；被绑定的物体交给指定的后端，后端按 uBot 仿真时间以自己的固定步长推进，每帧把结果写回对应的 UE 组件；后端还可以把场景里其余的碰撞体当作静态物体和运动学物体看到。它建立在 [uBotCore](https://github.com/AstreoX/uBotCore) 之上。
 
 - **后端是独立的插件。** 本插件只提供后端接口（`IUBotPhysicsBackendFactory`、`IUBotPhysicsSolver`）、扩展点 `UBotPhysics.Backend`、绑定组件、所有权规则、按仿真时钟步进和位姿回写。它自己不带任何物理引擎；后端插件在扩展点注册一个工厂，名字就是绑定组件里 `Backend` 填的名字。
 - **蓝图优先。** 绑定组件 `uBot Physics Binding` 加在 Actor 上，选后端，播放时自动绑定；查询和诊断也有蓝图节点。
 - **UE 里的组件不变。** 被绑定的组件还是原来的网格或碰撞体，只是不再由 Chaos 模拟；传感器、射线检测、动画照常使用它。
+- **后端能看到场景。** 后端声明能力后，关卡里其余的碰撞体按静态和运动学两类交给它，它自己的物体可以和它们接触，见“场景几何”。
 - **可复现。** 后端的步序是仿真时间网格上的整数，不累加帧间隔；暂停时不步进，恢复后不补跑。
 - **后端接口是实验性的。** 在只有少数实现的阶段，接口在小版本之间可能变化。
 
@@ -31,7 +32,7 @@ uBotPhysics 是 **Capability**（能力）层，依赖 `UBotCore ^0.1.3`（刚�
 | --- | --- | --- | --- |
 | `UBotPhysics` | Runtime | Default | 后端接口、绑定组件、世界子系统、蓝图函数库 |
 
-`"UBot"` 块声明的能力键（`Provides`）：`Physics.Backends`、`Physics.BodyBinding`；标签 `physics`。模块依赖 `Core`、`CoreUObject`、`Engine` 和 `UBotCore`，日志类别只有 `LogUBotPhysics`。
+`"UBot"` 块声明的能力键（`Provides`）：`Physics.Backends`、`Physics.BodyBinding`、`Physics.SceneGeometry`；标签 `physics`。模块公有依赖 `Core`、`CoreUObject`、`Engine` 和 `UBotCore`，私有依赖 `ChaosCore`、`Chaos` 和 `PhysicsCore`（读取碰撞形状），日志类别只有 `LogUBotPhysics`。
 
 ## 安装
 
@@ -75,7 +76,7 @@ C++ 工程使用时，在自己模块的 `Build.cs` 中加入 `"UBotCore"` 和 `
 
 **后端**是一个在扩展点 `UBotPhysics.Backend` 注册的工厂（`IUBotPhysicsBackendFactory`）。工厂的扩展名就是后端名；它声明后端的能力（`FUBotPhysicsCapabilities`），并为每个世界创建一个**求解器**（`IUBotPhysicsSolver`）。求解器只在游戏线程上使用。
 
-一个世界里，每个后端最多有一个求解器，在第一次有物体绑定到它时创建，随世界一起释放。后端自带的模型（例如它自己的场景文件）由后端插件管理；本插件不规定模型格式，也不把 UE 的场景几何交给后端。
+一个世界里，每个后端最多有一个求解器，在第一次有物体绑定到它时创建，随世界一起释放。后端自带的模型（例如它自己的场景文件）由后端插件管理；本插件不规定模型格式。UE 场景里其余的碰撞体怎样交给后端，见“场景几何”。
 
 ### 绑定与所有权
 
@@ -104,7 +105,7 @@ C++ 工程使用时，在自己模块的 `Build.cs` 中加入 `"UBotCore"` 和 `
 
 ```
 UWorld::Tick 推进仿真时间
-TG_PrePhysics     UBotPhysics：每个求解器按自己的步长补到不超过当前仿真时间；所有求解器都步进完之后，把所有被绑定物体的位姿写回运动学组件
+TG_PrePhysics     UBotPhysics：需要时扫描场景；每个求解器先收到场景的变化，再按自己的步长补到不超过当前仿真时间；所有求解器都步进完之后，把所有被绑定物体的位姿写回运动学组件
 TG_DuringPhysics  Chaos 模拟其余的物体；被绑定的组件作为运动学体推动它们
 TG_PostPhysics    传感器采样、ROS 发布
 ```
@@ -114,14 +115,42 @@ TG_PostPhysics    传感器采样、ROS 发布
 - 求解器的时钟在它第一次有物体、且子系统第一次运行时启动，第一步在启动时间加一个步长处结束，之后都落在这条网格上。所以求解器的时间**从不超过**仿真时间，暂停期间不步进，恢复后也不补跑。
 - 一帧需要的步数超过每帧步数上限（C++ 里 `GetMaxStepsPerFrame` / `SetMaxStepsPerFrame`，默认 1000，至少为 1）时，最早的那些步照常执行，其余的被跳过，计入 `Get Dropped Physics Steps`。跳过的步不补跑，求解器从此少走了这些步，见“单向作用和限制”。
 - 一个求解器的物体都解绑后，它不再步进；下一次有物体绑定时时钟重新启动。丢弃的步数累计，不清零。
+- **场景更新在步进之前。** 每帧先扫描场景（只在有求解器持有物体且声明了场景能力时），再对每个持有物体的求解器，在它的时钟检查之后、它的步进之前调用 `UpdateScene`，这一帧它没有步进也一样，见“场景几何”。
 - **每帧写回一次，在所有求解器都步进完之后。** 对每个已有状态的被绑定物体，写回它的最新位姿：`SetWorldLocationAndRotation`（不扫掠，传送类型为 `None`，所以运动学体可以推动 Chaos 物体），并设置 `ComponentVelocity`（cm/s）。这一帧里它的求解器没有步进（帧比步长短）也照样写，所以别的东西挪动了组件，下一帧它也会回到求解器给出的位姿。非有限的状态不写回，并为这个求解器记一条 Warning。
 - **写回的顺序：附着父级在前，子级在后。** 移动一个组件会带着附着在它下面的组件一起动，所以按附着深度（到根要经过几个附着父级）从小到大写，跨后端也一样；这样父子两个组件都被绑定时（即使属于不同的后端），子组件最后落在自己求解器给出的位姿上，而不是被父组件带偏。同一深度的组件互不影响，按求解器和句柄排序，每次运行顺序相同。
 - **写回途中解绑、重新绑定或销毁，不会写入过时的数据。** 移动一个组件会运行 UE 的委托（重叠、变换回调等），用户的代码可能在其中解绑、重新绑定或销毁别的被绑定组件，也可能是这个组件自己。所以先收集每个物体的状态，并记下当时是谁持有它（绑定组件、后端、句柄、求解器对象和交出代数）；真正移动之前、设置 `ComponentVelocity` 之前各核对一次，持有者变了就跳过这个物体。交出代数是子系统在每次成功交出一个组件时从一个只增不减的计数器取的编号，所以解绑后又绑定，即使求解器把刚释放的句柄再发给了新物体（绑定组件、后端、句柄、求解器都和原来一样），也不会被当成原来的持有关系。已经解绑、已重新绑定（换了代数）或已被销毁的组件，不会再收到过时的位姿或速度。组件在自己的变换回调里解绑自己时，位姿已经写完，只有后面的速度被跳过。
 
+### 场景几何
+
+后端的能力里声明了 `bStaticSceneGeometry` 或 `bKinematicForeignBodies` 时，子系统把关卡里**其余的**碰撞体当作静态物体和运动学物体交给它（`IUBotPhysicsSolver::UpdateScene`），后端的物体因此能和 UE 的场景接触。两项都没有声明的后端什么也收不到。
+
+**哪些组件算场景。** 子系统检查世界里所有已加载关卡中每个 Actor 的每个 Primitive 组件，同时满足下面这些的才算：
+
+1. 已注册，有效，自己和所属 Actor 都不在销毁中；
+2. 碰撞带物理（`Collision Enabled (Query and Physics)` 或 `Physics Only`）；只有查询碰撞或没有碰撞的不算，也不计入统计；
+3. 组件和它的 Actor 都没有标签 `UBotPhysics.NoScene`（C++ 里是 `UBot::Physics::NoSceneTag`），给不想让后端看到的组件或 Actor 加上它；
+4. 能导出碰撞形状。有物理碰撞却导不出形状的（没有 Body Setup、只有不支持的形状、不支持的组件类型）计入统计里的 `SkippedComponents`。
+
+**静态和运动学。** Mobility 是 `Static` 或 `Stationary` 的是**静态物体**，加入时发一次，之后不再发送；`Movable` 的是**运动学物体**，每帧发它的位姿。运动学物体包括 Chaos 模拟的物体、别的后端的物体、被别的刚体状态源（例如载具自己的积分器）驱动的物体，以及被游戏代码移动的可移动组件。后端按能力分别拿到两类：只声明 `bStaticSceneGeometry` 的后端看不到运动学物体，只声明 `bKinematicForeignBodies` 的看不到静态物体。
+
+**自己的物体不在其中。** 绑定到某个后端的组件，以及（直接或经过更多层）附着在它们下面的组件，对这个后端来说是它自己的物体，或者跟着自己的物体走，所以不交给它；别的后端仍然把它们当作运动学物体看到。解绑之后，它们在这个后端的下一次更新里加入，ID 不变。
+
+**导出的形状。** 和 Chaos 模拟的一样：Body Setup 里的简单形状（球、盒、胶囊、凸包），只有碰撞复杂度是“把复杂碰撞当作简单碰撞”（Use Complex Collision As Simple）且三角网格已经建好时才导出三角网格。组件的世界缩放按 UE 构建 Chaos 几何的方式烘进形状，镜像缩放会调换三角形的绕向。形状在物体自己的坐标系里，单位是米，轴是 UE 世界轴，不含缩放。碰撞设置（通道、响应）不看，有物理碰撞就导出。摩擦和弹性取组件的简单物理材质，没有就取引擎的默认材质。
+
+**不导出的。** 地形高度场、实例化静态网格（Instanced / Hierarchical Instanced Static Mesh）、蒙皮网格（骨骼网格）这些组件整个不导出；锥形胶囊和水平集（Level Set）形状会被略过，同一个组件上的其余形状照常导出。
+
+**什么时候发，位姿是哪一刻的。** 每帧在 `AdvanceTo` 里，只要有求解器持有物体且声明了场景能力，就扫描一次世界的组件（开销与世界里的组件数成正比），然后对每个持有物体的求解器调用一次 `UpdateScene`：在它的时钟检查之后、步进之前，这一帧它没有步进也一样。有变化，或者有运动学物体时才调用；没有物体的求解器不收更新，它重新持有物体后的第一次更新补上期间的全部变化。位姿是这一帧开始步进时各组件显示的样子：Chaos 物体落后一个物理帧（它们的结果在这一帧的物理之后才写到组件上），别的后端的物体是上一帧写回的位姿。
+
+**变化和 ID。** 一次更新里 `Removed` 先于 `Added` 处理。组件被销毁、关掉碰撞、加上标签，或者 Body Setup 对象、世界缩放、Mobility 变了，它的旧 ID 随 `Removed` 发出；之后如果仍然符合条件，以新 ID 加入。一个 ID 只指向一个组件的一次导出，永远不会指向别的东西。组件被绑定或解绑不改变它的 ID，只是进出这个后端的场景。形状在导出时读取一次：原地修改同一个 Body Setup 里的形状（例如运行时改盒体碰撞的 Box Extent）不会被发现，需要重新导出时切一下碰撞或缩放。后端被注销后重新注册，新的求解器第一次更新带整个场景。
+
+**单向。** 场景里的 Chaos 物体和别的后端的物体在后端看来是运动学物体：后端的物体能撞上它们，它们不会因此被推动，见“单向作用和限制”。
+
+**统计。** `Get Physics Scene Stats` 给出一个后端现在看到的东西：交给它的静态物体数、运动学物体数、这些物体的形状总数，以及世界里有物理碰撞却没能导出的组件数（`SkippedComponents`，取自最近一次扫描）。后端在这个世界里没有求解器时返回 `false`。
+
 ### 单向作用和限制
 
 - 后端的物体和 Chaos 的物体之间只有**单向**作用：后端物体是 Chaos 里的运动学体，能推动 Chaos 物体；Chaos 物体推不动后端物体。互相需要动态接触的物体必须交给同一个后端。
-- 0.1.0 不把 UE 的场景几何交给后端：后端物体只和后端自己模型里的东西接触。能力声明里的 `bStaticSceneGeometry`、`bKinematicForeignBodies` 只是后端对自己的说明，本插件目前不使用它们。
+- 后端的物体只和后端自己模型里的东西，以及子系统交给它的场景接触（见“场景几何”）。声明了 `bStaticSceneGeometry` 或 `bKinematicForeignBodies` 的后端才收到场景；场景里的 Chaos 物体和别的后端的物体对它是运动学物体，后端物体撞上它们，它们不会被推动。
 - 控制不属于后端接口。后端自己的组件实现 UBotCore 的执行器接口（速度、姿态、电机等指令），把指令直接写进自己的求解器。
 - 位姿回写以步为单位，不做外推。没有丢弃过步数时，组件的位姿落后仿真时间最多一个步长。丢弃发生之后（一帧需要的步数超过每帧步数上限，见“每帧时序”）这一点不再成立：被跳过的步不会补跑，此后求解器实际推进的步数比仿真时间经过的步数少了丢弃的那些，物体的运动比仿真时间慢，差距是丢弃步数乘以步长，不会自己消失，直到这个求解器的时钟重新启动（它的物体全部解绑后再绑定）。传给 `Step` 的结束时间和状态的时间戳仍落在原来的网格上，不晚于仿真时间。`Get Dropped Physics Steps` 大于 0 就说明发生过。
 
@@ -155,8 +184,9 @@ TG_PostPhysics    传感器采样、ROS 发布
 | `Get uBot Physics Backend Capabilities` | 一个后端的能力（`FUBotPhysicsCapabilities`）；没有这个后端时返回 `false` |
 | `Get Body Physics Backend` | 模拟这个组件的后端名；`None` 表示 Chaos |
 | `Get Dropped Physics Steps` | 这个世界里某后端因为一帧步数超限而丢弃的步数 |
+| `Get Physics Scene Stats` | 这个世界里某后端现在看到的场景：静态物体数、运动学物体数、形状数，以及没能导出的组件数（`FUBotPhysicsSceneStats`）；后端没有求解器时返回 `false` |
 
-`FUBotPhysicsCapabilities` 的字段只会追加：`bRigidBodies`、`bArticulations`、`bMaximalCoordinateJoints`、`bContacts`、`bStaticSceneGeometry`、`bKinematicForeignBodies`、`bAccelerations`、`bDeterministic`、`bDifferentiable`、`bSoftBodies`、`bCloth`、`bParticles`，默认全是 `false`，后端只声明自己真的支持的。
+`FUBotPhysicsCapabilities` 的字段只会追加：`bRigidBodies`、`bArticulations`、`bMaximalCoordinateJoints`、`bContacts`、`bStaticSceneGeometry`、`bKinematicForeignBodies`、`bAccelerations`、`bDeterministic`、`bDifferentiable`、`bSoftBodies`、`bCloth`、`bParticles`，默认全是 `false`，后端只声明自己真的支持的。其中 `bStaticSceneGeometry` 和 `bKinematicForeignBodies` 决定后端是否收到场景几何。能力在创建求解器时从工厂读取一次，之后不会再读：工厂的能力不能变，要换能力就注册一个新的工厂（相当于换掉这个后端）。
 
 ## 刚体状态
 
@@ -220,19 +250,22 @@ public:
     virtual double GetStepSeconds() const override;
     virtual void Step(double StepEndTimeSeconds) override;
     virtual bool GetBodyState(int32 BodyHandle, FUBotBodyState& OutState) const override;
+    virtual void UpdateScene(const FUBotPhysicsSceneUpdate& Update) override;   // 可选，默认什么也不做
 };
 ```
 
 约定：
 
 - **所有调用都在游戏线程。** 求解器由世界子系统持有，世界结束时释放。
-- **回调里不要重入。** 工厂和求解器的回调（`CreateSolver`、`AddBody`、`RemoveBody`、`Step`、`GetBodyState`）不能同步地绑定或解绑物体（`Bind`、`Unbind`），也不能同步地注册或注销后端（`RegisterExtension`、`UnregisterExtension`、`UnregisterAllFromPackage`），直接调用和经由你调用的代码间接触发都一样。子系统对已知的几种情况做了防御：后端在 `CreateSolver` 或 `AddBody` 里注销或换掉自己（见下一条和“绑定与所有权”）、`CreateSolver` 里触发同一个后端的绑定（被拒绝）、写回途中用户代码解绑或重新绑定（不写过时的数据）。但这些只是兜底，这种重入不受支持，行为没有保证。需要这样做时，等回调返回之后再做，例如放到之后某一帧的 Tick 里。
+- **回调里不要重入。** 工厂和求解器的回调（`CreateSolver`、`AddBody`、`RemoveBody`、`Step`、`GetBodyState`、`UpdateScene`）不能同步地绑定或解绑物体（`Bind`、`Unbind`），也不能同步地注册或注销后端（`RegisterExtension`、`UnregisterExtension`、`UnregisterAllFromPackage`），直接调用和经由你调用的代码间接触发都一样。子系统对已知的几种情况做了防御：后端在 `CreateSolver` 或 `AddBody` 里注销或换掉自己（见下一条和“绑定与所有权”）、`CreateSolver` 里触发同一个后端的绑定（被拒绝）、写回途中用户代码解绑或重新绑定（不写过时的数据）。但这些只是兜底，这种重入不受支持，行为没有保证。需要这样做时，等回调返回之后再做，例如放到之后某一帧的 Tick 里。
 - **注销。** 在后端模块的 `ShutdownModule` 里 `UnregisterAllFromPackage`（或 `UnregisterExtension`）注销工厂，不要让工厂比它的代码活得更久。注销的那次调用里（如果从游戏线程调用），子系统就会取回这个后端的所有物体，对每个物体调用求解器的 `GetBodyState`（取最后的速度交给 Chaos）和 `RemoveBody`，然后释放求解器；这时后端的代码必须还在。注册表从别的线程被修改时，子系统把这件事推迟到游戏线程，在那之前不碰求解器和组件，所以在这种情况下也要保证后端的代码活到游戏线程处理完。已注册的工厂被换成另一个同名的工厂对象，同样视为原后端被注销。注销也可能发生在你自己的 `CreateSolver` 或 `AddBody` 里（例如它们调用了会卸载后端的代码）：子系统在这两个调用返回后检查工厂和求解器是不是原来的，不是就用 `RemoveBody` 取回已经接受的物体，绑定失败为 `BackendMissing`，所以 `RemoveBody` 可能在工厂已被注销后，对一个刚刚还在 `AddBody` 里的求解器调用。这是对重入的兜底，不是约定：不要依赖它，见上一条。
 - **`AddBody`。** 返回大于等于 0 的句柄，或 `INDEX_NONE` 并设置 `OutError`（会出现在绑定的错误里）。`FUBotPhysicsBodyDesc` 带组件、`Body Name`、发起绑定的绑定组件（可以转成后端自己的子类读模型设置）和组件在交出时的世界变换（UE 世界，厘米）。交给求解器时组件已经是运动学体。
 - **`GetStepSeconds`。** 固定步长，求解器生命期内不变，范围 0.0001 s 到 100 s。
 - **`Step`。** 前进一步；`StepEndTimeSeconds` 是这一步结束时的 uBot 仿真时间，从不晚于当前仿真时间。
 - **`GetBodyState`。** 最近一步结束时的状态，UE 世界轴、SI 单位（位置 m，速度 m/s，角速度 rad/s，旋向与 UE 一致：+Z 向右偏航）；第一步之前或句柄未知时返回 `false`。子系统会把 `TimestampSeconds` 设为这一步结束的时间。
 - **坐标。** 后端内部用右手系时，用 UBotCore 的 `UBot::RightHanded` 在 UE 轴和后端轴之间换算。
+- **`UpdateScene`。** 只有工厂的能力声明了 `bStaticSceneGeometry`（收静态物体）或 `bKinematicForeignBodies`（收运动学物体）才会被调用，两项都没有就永远不会；求解器没有物体时也不调用。每帧最多一次，在这一帧的 `Step` 之前，有变化或者有运动学物体时才调用。`FUBotPhysicsSceneUpdate` 里：`SimTimeSeconds` 是这一帧的仿真时间；`Removed` 是离开这个求解器场景的物体 ID，先于 `Added` 处理；`Added` 是新进入场景的物体（`FUBotPhysicsSceneBody`：ID、组件的弱指针、静态还是运动学、物体坐标系在世界里的变换、形状、摩擦和弹性）；`KinematicPoses` 是更新之后这个求解器场景里**所有**运动学物体（刚加入的也在内）当前的位姿。ID 只指向一个组件的一次导出：组件的 Body Setup、世界缩放或 Mobility 变了，旧 ID 先随 `Removed` 离开，新的导出带新 ID 加入。后端的物体不会出现在自己的场景里，附着在它们下面的组件也不会。
+- **形状和单位。** `FUBotPhysicsShape` 的单位是米，轴是 UE 世界轴，已经含组件的世界缩放，变换里没有缩放：`Sphere` 的 `Size.X` 是半径；`Box` 的 `Size` 是半边长；`Capsule` 的 `Size.X` 是半径，`Size.Z` 是两个球心距离的一半，轴是形状自己的 Z；`Convex` 的 `Vertices` 是凸包的点集；`TriangleMesh` 的 `Vertices` 和 `Indices`（每三个下标一个三角形）在物体坐标系里。`LocalTransform` 是形状相对物体坐标系的变换，凸包和三角网格是单位变换。后端给自己的物体取形状时，用同一个函数 `UBot::Physics::GetCollisionShapes(Component, OutShapes, OutSkippedShapes)`，导出的是 Chaos 模拟的那些形状；组件没有可导出的形状或类型不支持（蒙皮网格、实例化静态网格）时返回 `false`。
 - **控制。** 不在这个接口里。后端自己的组件实现 UBotCore 的执行器接口，把指令直接送给自己的求解器。
 
 `UBot::Physics::FindBackendFactory(Name)` 和 `UBot::Physics::GetBackendNames()` 查询已注册的后端。
@@ -254,6 +287,8 @@ public:
 | 日志提示后端的状态不是有限值 | 后端的求解发散了。这个物体的位姿不会写回，组件停在上一个位姿 |
 | 解绑后物体飞走 | 解绑会把后端最后一步的速度交给 Chaos，这是预期的；要让物体停下，先让后端停下再解绑 |
 | `Get Dropped Physics Steps` 在增长 | 一帧需要的步数超过每帧步数上限。帧太长，或后端的步长太短 |
+| 后端收不到场景更新 | 工厂的能力要声明 `bStaticSceneGeometry` 或 `bKinematicForeignBodies`，求解器要持有至少一个物体，场景里要有符合条件的组件或运动学物体 |
+| 某个组件没有出现在后端的场景里 | 看它是否有物理碰撞、是否带 `UBotPhysics.NoScene` 标签、是不是这个后端自己的物体或附着在它下面、是不是不支持的类型（骨骼网格、实例化静态网格、地形），后三种类型会计入 `Get Physics Scene Stats` 的 `SkippedComponents` |
 
 ## 测试
 
@@ -283,9 +318,18 @@ public:
   - `WriteBackGeneration`：求解器把刚释放的句柄再发给新物体（测试后端的一个选项）时，被绑定组件的变换回调在写回途中把别的被绑定组件、或它自己解绑后又重新绑定（速度也换了）：重新绑定的物体不会被当成原来的持有关系，过时的位姿和速度都不写入，下一帧起按新物体写回；
   - `TickFunction`：Tick 函数在播放开始时注册，在 `TG_PrePhysics`，暂停时不运行，恢复后不补跑；
   - `IdleSolverRestarts`：没有物体的求解器不步进，重新绑定后时钟重新启动，不补跑空闲的时间。
+- `Scene.*`：
+  - `CollisionShapes`：`GetCollisionShapes` 对盒体、球体、胶囊体组件（带旋转和非均匀缩放，盒体还有镜像缩放）以及引擎的 `Cube`、`Cylinder` 静态网格（含镜像缩放）：类型、尺寸和变换（米），与测试自己用 `GetFinalScaled` 和逐轴缩放顶点算出的结果比较；带自己变换的凸包、太小的凸包和锥形胶囊（计入略过的形状）；实例化静态网格和蒙皮网格返回 `false`；三角网格走私有的转换函数，用合成的三角形检查缩放、单位，以及镜像缩放调换绕向（没有在测试里烹饪网格）；
+  - `StaticAndKinematic`：一个静态盒、一个可移动盒和一个绑定的物体：第一帧两个盒以正确的类型、ID、米制变换和形状加入，可移动的盒在 `KinematicPoses` 里，物理材质来自组件；盒移动后下一次更新只有它的新位姿，静态盒不再发送；
+  - `Capabilities`：两项能力都没有则从不调用 `UpdateScene`；只有静态则没有运动学物体；只有运动学则没有静态物体；没有物体的求解器不收更新，重新持有物体后补上期间的变化；
+  - `OwnBodiesExcluded`：两个后端：A 绑定了一个带附着子盒的 Actor，A 的场景里没有这两个组件，B 的场景里有，且是运动学物体；A 解绑后下一次更新加入它们，ID 与 B 看到的相同，B 的 ID 不变；
+  - `Changes`：销毁组件、关闭碰撞、给 Actor 或组件加 `UBotPhysics.NoScene`：`Removed`；重新打开碰撞、去掉标签：以新 ID 加入；改世界缩放或 Mobility：同一次更新里 `Removed` 加新 ID 的 `Added`；没有物理碰撞的组件从不发送；蒙皮网格和实例化静态网格计入略过的组件；
+  - `UpdateBeforeSteps`：`UpdateScene` 在这一帧的 `Step` 之前，每帧最多一次，`SimTimeSeconds` 是这一帧的仿真时间，这一帧没有步进也调用；
+  - `ReleasedBackend`：注销后端，求解器和它的场景视图随之消失；重新注册并绑定后，新求解器的第一次更新带整个场景；
+  - `Stats`：`GetSceneStats` 和蓝图节点与求解器看到的场景及略过的组件数一致，两个后端各有各的统计。
 - `Package.Descriptor`：`.uplugin` 的 `UBot` 块（层、对 UBotCore 的依赖、能力键、标签）。
 
-测试在手动 tick 的临时 Game 世界里运行，用一个测试后端（每个物体匀速直线运动），不需要 GPU，也不需要真实的物理后端。需要在启用了 UBotCore 和 UBotPhysics 的工程里用带编辑器上下文的 `UnrealEditor` 运行。编辑器内：`Tools` 菜单打开 Session Frontend 的 Automation 标签页，过滤 `UBotPhysics`。命令行：
+测试在手动 tick 的临时 Game 世界里运行，用一个测试后端（每个物体匀速直线运动，能力可以配置，并记录收到的每次场景更新和它们累积出的场景），不需要 GPU，也不需要真实的物理后端。需要在启用了 UBotCore 和 UBotPhysics 的工程里用带编辑器上下文的 `UnrealEditor` 运行。编辑器内：`Tools` 菜单打开 Session Frontend 的 Automation 标签页，过滤 `UBotPhysics`。命令行：
 
 ```powershell
 & '<UE_5.5>\Engine\Binaries\Win64\UnrealEditor-Cmd.exe' '<Project>\<Project>.uproject' -unattended -nop4 -nosplash -NullRHI '-ExecCmds=Automation RunTests UBotPhysics; Quit' '-TestExit=Automation Test Queue Empty'

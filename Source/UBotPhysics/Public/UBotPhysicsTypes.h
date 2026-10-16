@@ -87,3 +87,26 @@ enum class EUBotPhysicsBindingStatus : uint8
     /** The last Bind failed: a component or the backend refused. Nothing is bound. */
     Rejected
 };
+
+/** What one backend currently sees of the UE scene. */
+USTRUCT(BlueprintType)
+struct UBOTPHYSICS_API FUBotPhysicsSceneStats
+{
+    GENERATED_BODY()
+
+    /** Static colliders handed to the backend. */
+    UPROPERTY(BlueprintReadOnly, Category = "uBot|Physics")
+    int32 StaticBodies = 0;
+
+    /** Kinematic (moving) colliders handed to the backend. */
+    UPROPERTY(BlueprintReadOnly, Category = "uBot|Physics")
+    int32 KinematicBodies = 0;
+
+    /** Shapes of those bodies. */
+    UPROPERTY(BlueprintReadOnly, Category = "uBot|Physics")
+    int32 Shapes = 0;
+
+    /** Components of the world with physics collision that could not be exported (unsupported type or shapes, no body setup). */
+    UPROPERTY(BlueprintReadOnly, Category = "uBot|Physics")
+    int32 SkippedComponents = 0;
+};
