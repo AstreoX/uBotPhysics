@@ -66,11 +66,11 @@ struct UBOTPHYSICS_API FUBotPhysicsBodyBinding
     GENERATED_BODY()
 
     /** Primitive component of the binding's own actor that shows the body; it must be Movable. */
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "uBot|Physics", meta = (UseComponentPicker, AllowedClasses = "/Script/Engine.PrimitiveComponent"))
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Physics", meta = (UseComponentPicker, AllowedClasses = "/Script/Engine.PrimitiveComponent"))
     FComponentReference Component;
 
     /** Name of the body in the backend's model. None: the backend derives it. */
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "uBot|Physics")
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Physics")
     FName BodyName;
 };
 

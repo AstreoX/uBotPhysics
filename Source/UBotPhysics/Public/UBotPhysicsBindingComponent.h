@@ -31,15 +31,15 @@ public:
     UUBotPhysicsBindingComponent();
 
     /** Backend that simulates the bodies: the name an extension is registered under at the UBotPhysics.Backend extension point. Read when Bind is called. */
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "uBot|Physics")
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Physics")
     FName Backend;
 
     /** The bodies to hand over; each must be a component of this actor. Empty: the owner's root component, which must be a primitive component. */
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "uBot|Physics")
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Physics")
     TArray<FUBotPhysicsBodyBinding> Bodies;
 
     /** Binds when play begins. Turn it off to call Bind yourself, for example after the backend's model is ready. */
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "uBot|Physics")
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Physics")
     bool bBindOnBeginPlay = true;
 
     /**
