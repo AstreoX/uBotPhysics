@@ -43,7 +43,7 @@
             "const": false
           },
           "default": "None",
-          "category": "uBot|Physics",
+          "category": "Physics",
           "access": "readOnly",
           "editable": "anywhere",
           "tooltip": "Backend that simulates the bodies: the name an extension is registered under at the UBotPhysics.Backend extension point. Read when Bind is called.",
@@ -62,7 +62,7 @@
             "const": false
           },
           "default": "",
-          "category": "uBot|Physics",
+          "category": "Physics",
           "access": "readOnly",
           "editable": "anywhere",
           "tooltip": "The bodies to hand over; each must be a component of this actor. Empty: the owner's root component, which must be a primitive component.",
@@ -81,7 +81,7 @@
             "const": false
           },
           "default": "True",
-          "category": "uBot|Physics",
+          "category": "Physics",
           "access": "readOnly",
           "editable": "anywhere",
           "tooltip": "Binds when play begins. Turn it off to call Bind yourself, for example after the backend's model is ready.",
