@@ -1,7 +1,7 @@
 {
   "format": 1,
   "plugin": "UBotPhysics",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "engine": "5.5",
   "repository": "https://github.com/AstreoX/uBotPhysics",
   "generator": "UBotDocExport 1",

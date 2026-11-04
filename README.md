@@ -34,12 +34,14 @@ uBot Physics is the multi-backend physics plugin of the uBot family for Unreal E
 
 ## Status
 
-**0.1.0 (Beta), not released yet.** The backend interfaces (`IUBotPhysicsBackendFactory`, `IUBotPhysicsSolver`) are experimental and may change between minor versions.
+**0.2.0 (Beta), not released yet.** The backend interfaces (`IUBotPhysicsBackendFactory`, `IUBotPhysicsSolver`) are experimental and may change between minor versions.
+
+Rebuild all dependent modules together; do not mix 0.1.x DLLs with 0.2.0. See [Core API migration](https://astreox.github.io/uBotDocs/develop/migration/#core-旧-ros-api-迁移020-开发版). This version is not yet installable through uBot Manager.
 
 ## Dependencies
 
 - Unreal Engine 5.5 and a C++ project. The plugin is distributed as source.
-- [uBotCore](https://github.com/AstreoX/uBotCore) `^0.1.3`. Version 0.1.3 is not released yet either.
+- [uBotCore](https://github.com/AstreoX/uBotCore) `^0.2.0`, also unreleased.
 - At least one physics backend plugin to bind bodies to. Without one, a binding fails with `BackendMissing` and the bodies stay with Chaos.
 
 ## Documentation

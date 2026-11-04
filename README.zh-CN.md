@@ -34,12 +34,14 @@ uBot Physics 是 uBot 系列中的多物理后端插件，适用于 Unreal Engin
 
 ## 状态
 
-**0.1.0（Beta），尚未发布。** 后端接口（`IUBotPhysicsBackendFactory`、`IUBotPhysicsSolver`）是实验性的，小版本之间可能变化。
+**0.2.0（Beta），尚未发布。** 后端接口（`IUBotPhysicsBackendFactory`、`IUBotPhysicsSolver`）是实验性的，小版本之间可能变化。
+
+所有依赖模块须统一重编，不能混用 0.1.x 与 0.2.0 DLL，见 [Core API 迁移](https://astreox.github.io/uBotDocs/develop/migration/#core-旧-ros-api-迁移020-开发版)。此版本暂不能通过 uBot Manager 安装。
 
 ## 依赖
 
 - Unreal Engine 5.5 与 C++ 工程。插件以源码形式分发。
-- [uBotCore](https://github.com/AstreoX/uBotCore) `^0.1.3`。0.1.3 同样尚未发布。
+- [uBotCore](https://github.com/AstreoX/uBotCore) `^0.2.0`，同样尚未发布。
 - 至少一个物理后端插件，用来接收被绑定的物体。没有后端时，绑定会失败并报告 `BackendMissing`，物体仍由 Chaos 模拟。
 
 ## 文档
