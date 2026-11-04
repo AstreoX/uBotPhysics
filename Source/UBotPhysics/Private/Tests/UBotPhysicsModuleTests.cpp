@@ -9,6 +9,7 @@
 #include "UBotPhysicsBackend.h"
 #include "UBotPhysicsLibrary.h"
 #include "UBotPhysicsTestTypes.h"
+#include "UBotSemVer.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FUBotPhysicsBackendsExtensionPointTest, "UBotPhysics.Backends.ExtensionPoint", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
@@ -86,7 +87,8 @@ bool FUBotPhysicsPackageDescriptorTest::RunTest(const FString& Parameters)
         return false;
     }
 
-    TestEqual(TEXT("Version"), Package->Version, FString(TEXT("0.1.0")));
+    FUBotSemVer PackageVersion;
+    TestTrue(TEXT("The package has a semantic version"), FUBotSemVer::Parse(Package->Version, PackageVersion));
     TestEqual(TEXT("Layer"), Package->Layer, EUBotPackageLayer::Capability);
     TestEqual(TEXT("Provides"), FString::Join(Package->Provides, TEXT(",")), FString(TEXT("Physics.Backends,Physics.BodyBinding,Physics.SceneGeometry")));
     TestEqual(TEXT("Tags"), FString::Join(Package->Tags, TEXT(",")), FString(TEXT("physics")));
@@ -94,7 +96,21 @@ bool FUBotPhysicsPackageDescriptorTest::RunTest(const FString& Parameters)
     if (TestEqual(TEXT("One requirement"), Package->Requires.Num(), 1))
     {
         TestEqual(TEXT("Requires UBotCore"), Package->Requires[0].Name, FString(TEXT("UBotCore")));
-        TestEqual(TEXT("At 0.1.3 or later in the 0.1 series"), Package->Requires[0].Version, FString(TEXT("^0.1.3")));
+        FUBotVersionConstraint CoreRequirement;
+        if (TestTrue(TEXT("The Core requirement is a valid range"), FUBotVersionConstraint::Parse(Package->Requires[0].Version, CoreRequirement)))
+        {
+            // Core 0.2 removed exported symbols. The descriptor must not permit the old ABI series.
+            TestFalse(TEXT("The pre-removal Core ABI is excluded"), CoreRequirement.IsSatisfiedBy(FUBotSemVer(0, 1, MAX_int32)));
+            const FUBotPackageInfo* Core = Registry.FindPackage(TEXT("UBotCore"));
+            if (TestNotNull(TEXT("Core is installed"), Core))
+            {
+                FUBotSemVer CoreVersion;
+                if (TestTrue(TEXT("Core has a semantic version"), FUBotSemVer::Parse(Core->Version, CoreVersion)))
+                {
+                    TestTrue(TEXT("The current Core version satisfies the requirement"), CoreRequirement.IsSatisfiedBy(CoreVersion));
+                }
+            }
+        }
         TestFalse(TEXT("The requirement is not optional"), Package->Requires[0].bOptional);
     }
     TestTrue(TEXT("The descriptor has no problems"), Package->Problems.IsEmpty());
