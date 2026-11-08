@@ -71,10 +71,10 @@ enum class EUBotPhysicsOverrunPolicy : uint8
  *
  * The subsystem calls Step on the uBot sim clock (see UUBotPhysicsSubsystem) and writes the poses of the
  * bodies back to their components after the steps of a frame. Before the steps it can hand the solver the
- * rest of the UE scene as static and kinematic bodies (UpdateScene). Controls are not part of this interface:
- * a backend's own components implement the uBotCore actuation interfaces and feed their solver directly.
+ * rest of the UE scene as static and kinematic bodies (UpdateScene). ApplyInputs only accepts physical
+ * inputs. Controller algorithms, trajectories and command-loss policies belong to external components.
  *
- * Re-entry is not supported: the callbacks of a solver and of its factory (CreateSolver, AddBody, RemoveBody,
+ * Re-entry is not supported: the callbacks of a solver and of its factory (CreateSolver, AddModel, RemoveModel, AddBody, RemoveBody,
  * Step, GetBodyState, UpdateScene) must not bind or unbind bodies, and must not register or unregister backends,
  * synchronously (directly or through code they call). The subsystem defends against the known cases (a
  * backend that unregisters or replaces itself inside CreateSolver or AddBody, a bind that comes in while

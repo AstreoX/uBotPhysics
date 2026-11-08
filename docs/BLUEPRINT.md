@@ -8,6 +8,7 @@
 
 | 属性 | 说明 |
 | --- | --- |
+| `Model` | 可选公共模型资产；物理字段通过重新导入更新。留空时从组件构建独立自由刚体模型 |
 | `Backend` | 模拟这些物体的后端名（`UBotPhysics.Backend` 扩展点上注册的名字）。调用 `Bind` 时读取 |
 | `Bodies` | 要交出的组件列表，只能是这个 Actor 自己的组件（`Component` 选择组件，`Body Name` 是它在后端模型里的名字，`None` 由后端自己决定）。留空：Actor 的根组件，必须是 Primitive 组件 |
 | `Bind On Begin Play` | 默认开启。关闭后自己调用 `Bind`，例如等后端的模型准备好之后 |
@@ -61,3 +62,5 @@ C++ 里 `UUBotPhysicsSubsystem` 提供同样的查询（`FindBodyBackend`、`Get
 | 消息 | 与 `Get Physics Binding Error` 相同 |
 
 下一次成功的 `Bind`、`Unbind`，或绑定结束播放时问题被清除。id 带的是绑定组件自己的路径名（包含它所在的世界和 Actor），所以每个绑定组件各有一个 id：同一个 Actor 上有多个绑定组件，或不同世界里有同名的 Actor，都不会共用。后端在绑定期间被注销（见“绑定与所有权”第 6 条）时，受影响的绑定同样报告这个问题，消息说明后端已注销。
+
+开发版还提供 `Get Physics Backend Status`（Missing/Ready/Overrun/Failed）和 `Reset Physics Backend`。重置作用于该世界该后端的全部模型实例；首次成功步进前不会发布新时间轴的状态。`Model Body Id` 提供大小写敏感的公共模型刚体映射，`Get Model Instance Id` 在每次成功绑定后更新。
