@@ -33,4 +33,22 @@ namespace UBot::Physics::Private
     {
         FUBotRuntimeStatus::Get().ClearProblem(MakeBindingProblemId(Binding));
     }
+
+    void ReportBackendFailure(const UObject& Context, FName Backend, const FText& Error)
+    {
+        UE_LOG(LogUBotPhysics, Warning, TEXT("Physics backend '%s' suspended: %s"), *Backend.ToString(), *Error.ToString());
+        FUBotRuntimeProblem Problem;
+        Problem.Id = FString::Printf(TEXT("physics.backend.%s.%s"), *Context.GetPathName(), *Backend.ToString());
+        Problem.Package = PackageName.ToString();
+        Problem.Severity = EUBotRuntimeSeverity::Warning;
+        Problem.Code = TEXT("physicsBackendSuspended");
+        Problem.Params.Emplace(TEXT("backend"), Backend.ToString());
+        Problem.Message = Error;
+        FUBotRuntimeStatus::Get().ReportProblem(Problem);
+    }
+
+    void ClearBackendFailure(const UObject& Context, FName Backend)
+    {
+        FUBotRuntimeStatus::Get().ClearProblem(FString::Printf(TEXT("physics.backend.%s.%s"), *Context.GetPathName(), *Backend.ToString()));
+    }
 }

@@ -21,4 +21,8 @@ namespace UBot::Physics::Private
 
     /** Withdraws the problem ReportBindingFailure raised for Binding. Does nothing if there is none. */
     void ClearBindingFailure(const UActorComponent& Binding);
+
+    /** World-local backend fault, cleared on successful reset or backend teardown. */
+    void ReportBackendFailure(const UObject& Context, FName Backend, const FText& Error);
+    void ClearBackendFailure(const UObject& Context, FName Backend);
 }

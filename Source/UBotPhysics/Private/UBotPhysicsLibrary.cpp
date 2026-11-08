@@ -43,3 +43,21 @@ bool UUBotPhysicsLibrary::GetPhysicsSceneStats(const UObject* WorldContextObject
     }
     return Subsystem->GetSceneStats(Backend, Stats);
 }
+
+EUBotPhysicsBackendStatus UUBotPhysicsLibrary::GetPhysicsBackendStatus(const UObject* WorldContextObject, FName Backend, FText& Error)
+{
+    const UUBotPhysicsSubsystem* Subsystem = UUBotPhysicsSubsystem::Get(WorldContextObject);
+    Error = FText::GetEmpty();
+    return Subsystem != nullptr ? Subsystem->GetBackendStatus(Backend, Error) : EUBotPhysicsBackendStatus::Missing;
+}
+
+bool UUBotPhysicsLibrary::ResetPhysicsBackend(const UObject* WorldContextObject, FName Backend, FText& Error)
+{
+    UUBotPhysicsSubsystem* Subsystem = UUBotPhysicsSubsystem::Get(WorldContextObject);
+    if (Subsystem == nullptr)
+    {
+        Error = INVTEXT("No physics subsystem is available.");
+        return false;
+    }
+    return Subsystem->ResetBackend(Backend, Error);
+}

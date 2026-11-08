@@ -5,6 +5,7 @@
 #include "UBotExtensionRegistry.h"
 #include "UBotPhysicsScene.h"
 #include "UBotPhysicsTypes.h"
+#include "UBotPhysicsModel.h"
 #include "UObject/WeakObjectPtrTemplates.h"
 
 class UPrimitiveComponent;
@@ -25,6 +26,43 @@ struct FUBotPhysicsBodyDesc
 
     /** Component world transform at hand-over, UE world (cm). */
     FTransform InitialWorldTransform;
+};
+
+/** A displayed body. The full model may also contain bodies without a UE display component. */
+struct FUBotPhysicsModelBodyBindingDesc
+{
+    FString BodyId;
+    FUBotPhysicsBodyDesc Desc;
+};
+
+/** Atomic registration of one immutable model in this World's backend. All transforms here are SI. */
+struct FUBotPhysicsModelInstanceDesc
+{
+    int64 InstanceId = INDEX_NONE;
+    FUBotPhysicsModel Model;
+    FTransform WorldTransform = FTransform::Identity;
+    TArray<FUBotPhysicsModelBodyBindingDesc> BodyBindings;
+    /** Adapter lifetime guard for body-only default registration; must not mutate anything. Never retained. */
+    TFunction<bool()> IsCurrent;
+};
+
+/** Handles of displayed bodies after a successful atomic registration. */
+struct FUBotPhysicsModelBodyHandle
+{
+    FString BodyId;
+    int32 Handle = INDEX_NONE;
+};
+
+struct FUBotPhysicsModelInstanceResult
+{
+    TArray<FUBotPhysicsModelBodyHandle> Bodies;
+};
+
+/** Budget overflow semantics. Suspend preserves continuous native time and requires explicit Reset. */
+enum class EUBotPhysicsOverrunPolicy : uint8
+{
+    Drop,
+    Suspend
 };
 
 /**
@@ -48,11 +86,20 @@ class UBOTPHYSICS_API IUBotPhysicsSolver
 public:
     virtual ~IUBotPhysicsSolver() = default;
 
+    /**
+     * Registers a whole model, all or nothing. Failure leaves every pre-existing model unchanged.
+     * The default supports body-only backends through AddBody. Implementations copy definitions before returning.
+     */
+    virtual bool AddModel(const FUBotPhysicsModelInstanceDesc& Desc, FUBotPhysicsModelInstanceResult& OutResult, FText& OutError);
+
+    /** Removes the whole instance. Failure means this backend must be suspended before ownership is returned. */
+    virtual bool RemoveModel(int64 InstanceId, FText& OutError);
+
     /** Takes over a body. Returns a handle >= 0, or INDEX_NONE with OutError set. */
-    virtual int32 AddBody(const FUBotPhysicsBodyDesc& Desc, FText& OutError) = 0;
+    virtual int32 AddBody(const FUBotPhysicsBodyDesc& Desc, FText& OutError) { OutError = INVTEXT("This backend requires model registration."); return INDEX_NONE; }
 
     /** Releases a body; its handle becomes invalid. */
-    virtual void RemoveBody(int32 BodyHandle) = 0;
+    virtual void RemoveBody(int32 BodyHandle) {}
 
     /**
      * Fixed step in seconds, constant for the solver's lifetime. Must lie within [0.0001, 100]
@@ -60,8 +107,20 @@ public:
      */
     virtual double GetStepSeconds() const = 0;
 
-    /** Advances one step. StepEndTimeSeconds is the uBot sim time at the end of this step. */
-    virtual void Step(double StepEndTimeSeconds) = 0;
+    /** Advances one step. A failed step must leave the last published state and timestamp available. */
+    virtual bool Step(double StepEndTimeSeconds, FText& OutError) = 0;
+
+    /** Continuous-time backends select Suspend; others retain the original bounded/drop schedule. */
+    virtual EUBotPhysicsOverrunPolicy GetOverrunPolicy() const { return EUBotPhysicsOverrunPolicy::Drop; }
+
+    /** Resets the complete backend scene and every instance. New native/uBot time epoch starts at SimTimeSeconds. */
+    virtual bool Reset(double SimTimeSeconds, FText& OutError) { OutError = INVTEXT("This backend does not support reset."); return false; }
+
+    /** Replaces held physical inputs for an instance. Invalid input is rejected as a whole. Game thread only. */
+    virtual bool ApplyInputs(int64 InstanceId, const FUBotPhysicsInputs& Inputs, FText& OutError) { OutError = INVTEXT("This backend does not accept physical inputs."); return false; }
+
+    /** Read-only joint endpoint state. False before the first step or when the instance/joint is unknown. */
+    virtual bool GetJointState(int64 InstanceId, const FString& JointId, FUBotPhysicsJointState& OutState) const { return false; }
 
     /**
      * State at the end of the last step (FUBotBodyState, UE world axes, SI). False before any step or for an
@@ -83,7 +142,10 @@ public:
      * the Id it had. Shapes, units and frames are described at FUBotPhysicsShape;
      * UBot::Physics::GetCollisionShapes gives the same shapes for a backend's own bodies.
      */
-    virtual void UpdateScene(const FUBotPhysicsSceneUpdate& Update) {}
+    virtual bool UpdateScene(const FUBotPhysicsSceneUpdate& Update, FText& OutError) { return true; }
+
+private:
+    TMap<int64, TArray<int32>> BodyOnlyModels;
 };
 
 /**

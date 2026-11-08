@@ -72,6 +72,10 @@ struct UBOTPHYSICS_API FUBotPhysicsBodyBinding
     /** Name of the body in the backend's model. None: the backend derives it. */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Physics")
     FName BodyName;
+
+    /** Case-sensitive stable body identity in Model. Empty uses Body Name, or the sole body of a one-body model. */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Physics")
+    FString ModelBodyId;
 };
 
 /** Where a physics binding stands. Append new values at the end. */
@@ -86,6 +90,20 @@ enum class EUBotPhysicsBindingStatus : uint8
     BackendMissing,
     /** The last Bind failed: a component or the backend refused. Nothing is bound. */
     Rejected
+};
+
+/** Runtime condition of one backend's complete World-local scene. */
+UENUM(BlueprintType)
+enum class EUBotPhysicsBackendStatus : uint8
+{
+    /** No solver has been created, or it has been unregistered. */
+    Missing,
+    /** The solver may advance on the simulation clock. */
+    Ready,
+    /** A continuous-time solver exceeded its frame budget. Explicit whole-backend reset is required. */
+    Overrun,
+    /** Model/scene update or numerical execution failed. Last published state is retained. */
+    Failed
 };
 
 /** What one backend currently sees of the UE scene. */
