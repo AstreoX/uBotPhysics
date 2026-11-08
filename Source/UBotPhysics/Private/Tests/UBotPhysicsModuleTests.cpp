@@ -90,7 +90,7 @@ bool FUBotPhysicsPackageDescriptorTest::RunTest(const FString& Parameters)
     FUBotSemVer PackageVersion;
     TestTrue(TEXT("The package has a semantic version"), FUBotSemVer::Parse(Package->Version, PackageVersion));
     TestEqual(TEXT("Layer"), Package->Layer, EUBotPackageLayer::Capability);
-    TestEqual(TEXT("Provides"), FString::Join(Package->Provides, TEXT(",")), FString(TEXT("Physics.Backends,Physics.BodyBinding,Physics.SceneGeometry")));
+    TestEqual(TEXT("Provides"), FString::Join(Package->Provides, TEXT(",")), FString(TEXT("Physics.Backends,Physics.BodyBinding,Physics.SceneGeometry,Physics.Models")));
     TestEqual(TEXT("Tags"), FString::Join(Package->Tags, TEXT(",")), FString(TEXT("physics")));
     TestTrue(TEXT("No engine plugins"), Package->ExternalRequires.IsEmpty());
     if (TestEqual(TEXT("One requirement"), Package->Requires.Num(), 1))

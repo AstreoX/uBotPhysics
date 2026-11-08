@@ -476,7 +476,10 @@ bool UUBotPhysicsSubsystem::BindBodies(UUBotPhysicsBindingComponent& Binding, FT
             if (!Solver->RemoveModel(Desc.InstanceId, RemoveError)) { SuspendBackend(BackendName, EUBotPhysicsBackendStatus::Failed, RemoveError); }
         }
         RestoreSimulation();
-        return Fail(EUBotPhysicsBindingStatus::Rejected, Error.IsEmpty() ? LOCTEXT("InvalidModelResult", "The backend refused the model or returned invalid body handles.") : Error);
+        return Fail(EUBotPhysicsBindingStatus::Rejected, FText::FormatNamed(
+            LOCTEXT("BackendRefusedModel", "Physics backend '{Backend}' did not accept the model of '{Actor}': {Reason}"),
+            TEXT("Backend"), FText::FromName(BackendName), TEXT("Actor"), FText::FromString(GetNameSafe(Owner)),
+            TEXT("Reason"), Error.IsEmpty() ? LOCTEXT("InvalidModelResult", "The backend refused the model or returned invalid body handles.") : Error));
     }
     FSolverSlot& Slot = Solvers[SlotIndex];
     if (Slot.BodyCount == 0) { Slot.bClockRunning = false; }
