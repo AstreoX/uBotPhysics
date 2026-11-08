@@ -51,6 +51,7 @@ The manual is published on the [documentation site](https://astreox.github.io/uB
 | I want to ... | Go to |
 | --- | --- |
 | Understand binding, ownership and per-frame timing | [docs/CONCEPTS.md](docs/CONCEPTS.md) |
+| Build or import a common physics model | [docs/MODELS.md](docs/MODELS.md) |
 | Write a physics backend in C++ | [docs/BACKENDS.md](docs/BACKENDS.md) |
 | See what scene geometry a backend receives | [docs/SCENE.md](docs/SCENE.md) |
 | Look up the component, Blueprint nodes and binding status | [docs/BLUEPRINT.md](docs/BLUEPRINT.md) |

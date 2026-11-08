@@ -76,3 +76,5 @@ uBot Physics 是 uBot 系列中的多物理后端插件，适用于 Unreal Engin
 ## 许可证
 
 [Apache License 2.0](LICENSE)，另见 [NOTICE](NOTICE)。Copyright 2026 AstreoX。允许使用、修改和再分发（包括商业用途）；再分发时须保留 `LICENSE` 与 `NOTICE` 文件，并标明修改过的文件。
+
+开发版新增公共模型资产、模型实例事务及后端失败/超预算状态，见 [公共模型](docs/MODELS.md)。

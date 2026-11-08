@@ -3,6 +3,7 @@
 bool IUBotPhysicsSolver::AddModel(const FUBotPhysicsModelInstanceDesc& Desc, FUBotPhysicsModelInstanceResult& OutResult, FText& OutError)
 {
     OutResult.Bodies.Reset();
+    if (!Desc.Model.Validate(OutError)) { return false; }
     if (Desc.InstanceId < 0 || BodyOnlyModels.Contains(Desc.InstanceId) || Desc.Model.Extension != nullptr || !Desc.Model.Drives.IsEmpty())
     {
         OutError = INVTEXT("This body-only backend cannot register this model instance or its native extension/drives.");
@@ -13,6 +14,18 @@ bool IUBotPhysicsSolver::AddModel(const FUBotPhysicsModelInstanceDesc& Desc, FUB
         if (Joint.Type != EUBotPhysicsJointType::Free)
         {
             OutError = INVTEXT("This body-only backend does not support articulated models.");
+            return false;
+        }
+    }
+    for (const FUBotPhysicsModelBody& Body : Desc.Model.Bodies)
+    {
+        const int32 FreeJoints = Desc.Model.Joints.FilterByPredicate([&Body](const FUBotPhysicsModelJoint& Joint)
+        {
+            return Joint.BodyId.Equals(Body.Id, ESearchCase::CaseSensitive) && Joint.Type == EUBotPhysicsJointType::Free;
+        }).Num();
+        if (!Body.ParentId.IsEmpty() || Body.bKinematic || FreeJoints != 1)
+        {
+            OutError = INVTEXT("This body-only backend only accepts independent free rigid bodies.");
             return false;
         }
     }

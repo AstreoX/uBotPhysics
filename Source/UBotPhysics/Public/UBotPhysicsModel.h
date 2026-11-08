@@ -51,7 +51,7 @@ struct UBOTPHYSICS_API FUBotPhysicsModelBody
     /** Authored local pose, meters, UE axes, unit scale. */
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Physics")
     FTransform LocalTransform = FTransform::Identity;
-    /** Mass in kilograms. Zero is permitted for static bodies only. */
+    /** Mass in kilograms. Zero permits massless structural links; the backend validates dynamic admissibility. */
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Physics")
     double MassKilograms = 1.0;
     /** Inertial frame relative to the body, translation in meters. */
