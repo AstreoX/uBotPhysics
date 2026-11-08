@@ -212,4 +212,30 @@ bool FUBotPhysicsModelDisplayQueriesTest::RunTest(const FString& Parameters)
     return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FUBotPhysicsModelScaledInstanceTest, "UBotPhysics.Model.ScaledInstanceRejected", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FUBotPhysicsModelScaledInstanceTest::RunTest(const FString& Parameters)
+{
+    using namespace UBotPhysicsTests;
+    FScopedTestBackend Backend;
+    FScopedPhysicsTestWorld World(false);
+    AUBotPhysicsModelActor* Actor = World.Get()->SpawnActor<AUBotPhysicsModelActor>();
+    Actor->PhysicsBinding->bBindOnBeginPlay = false;
+    UUBotPhysicsModelAsset* Asset = NewObject<UUBotPhysicsModelAsset>(Actor);
+    Asset->Model = OneBodyModel();
+    FUBotPhysicsModelJoint& Joint = Asset->Model.Joints.AddDefaulted_GetRef();
+    Joint.Id = TEXT("free"); Joint.BodyId = TEXT("body"); Joint.Type = EUBotPhysicsJointType::Free;
+    Actor->ModelAsset = Asset;
+    Actor->PhysicsBackend = BackendName;
+    Actor->SetActorScale3D(FVector(2.0));
+    TestTrue(TEXT("Display can be prepared before binding validation"), Actor->RebuildModelDisplay());
+    TestFalse(TEXT("Scaled instance cannot silently diverge from native physical dimensions"), Actor->PhysicsBinding->Bind());
+    TestTrue(TEXT("Error explains how to author physical scale"), Actor->PhysicsBinding->GetBindingError().ToString().Contains(TEXT("unit world scale")));
+    TestEqual(TEXT("Invalid scale is rejected before solver creation"), Backend.Factory->CreateCalls, 0);
+    TestEqual(TEXT("No model identity is claimed"), Actor->PhysicsBinding->GetModelInstanceId(), static_cast<int64>(INDEX_NONE));
+    Actor->SetActorScale3D(FVector::OneVector);
+    TestTrue(TEXT("Unit-scale model binds to the body-only backend"), Actor->PhysicsBinding->Bind());
+    return true;
+}
+
 #endif

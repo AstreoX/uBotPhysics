@@ -349,6 +349,12 @@ bool UUBotPhysicsSubsystem::BindBodies(UUBotPhysicsBindingComponent& Binding, FT
         }
     }
 
+    if (Binding.Model != nullptr && !Owner->GetActorScale3D().Equals(FVector::OneVector, 1.e-6))
+    {
+        return Fail(EUBotPhysicsBindingStatus::Rejected,
+            LOCTEXT("ScaledModelInstance", "Model instances require unit world scale. Author the physical dimensions and inertia in the model source, then reimport it."));
+    }
+
     // 3. The solver. The backend's code runs here and may unregister or replace its own factory.
     EUBotPhysicsBindingStatus SolverFailure = EUBotPhysicsBindingStatus::Rejected;
     const int32 SlotIndex = FindOrCreateSolverSlotIndex(BackendName, Factory, Error, SolverFailure);
