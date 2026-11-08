@@ -215,6 +215,9 @@ bool AUBotPhysicsModelActor::RebuildModelDisplay()
         Bodies.Add(Body.Id, Component);
         FUBotPhysicsBodyBinding& Mapping = PhysicsBinding->Bodies.AddDefaulted_GetRef();
         Mapping.ModelBodyId = Body.Id;
+        // OverrideComponent is an unreflected cache. Persist the actor-relative component path so
+        // saved levels, PIE duplicates and cooked instances resolve the same generated body pivot.
+        Mapping.Component.PathToComponent = Component->GetPathName(this);
         Mapping.Component.OverrideComponent = Component;
     }
     for (const FUBotPhysicsModelBody& Body : ModelAsset->Model.Bodies)
