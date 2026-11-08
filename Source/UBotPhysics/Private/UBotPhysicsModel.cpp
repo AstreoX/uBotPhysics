@@ -155,9 +155,9 @@ bool FUBotPhysicsModel::Validate(FText& OutError) const
         }
         if (Joint.Type == EUBotPhysicsJointType::Free)
         {
-            if (!BodyMap[Joint.BodyId]->ParentId.IsEmpty() || FreeBodies.Contains(Joint.BodyId))
+            if (FreeBodies.Contains(Joint.BodyId))
             {
-                return FailModel(OutError, TEXT("A free joint must uniquely move a root body."));
+                return FailModel(OutError, TEXT("A free joint must uniquely move its body."));
             }
             FreeBodies.Add(Joint.BodyId);
         }

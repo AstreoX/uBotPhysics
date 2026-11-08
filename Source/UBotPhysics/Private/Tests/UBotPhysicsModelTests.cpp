@@ -64,6 +64,17 @@ bool FUBotPhysicsModelValidationTest::RunTest(const FString& Parameters)
     Model = OneBodyModel();
     Model.Bodies[0].LocalTransform.SetScale3D(FVector(2.0));
     TestFalse(TEXT("Unbaked model scale is rejected"), Model.Validate(Error));
+    Model = OneBodyModel();
+    Model.Bodies[0].Id = TEXT("world");
+    Model.Bodies[0].MassKilograms = 0.0;
+    Model.Bodies[0].InertiaKilogramMetersSquared = FVector::ZeroVector;
+    FUBotPhysicsModelBody FreeBody;
+    FreeBody.Id = TEXT("free_body"); FreeBody.ParentId = TEXT("world");
+    Model.Bodies.Add(FreeBody);
+    FUBotPhysicsModelJoint FreeJoint;
+    FreeJoint.Id = TEXT("free_joint"); FreeJoint.BodyId = TEXT("free_body"); FreeJoint.Type = EUBotPhysicsJointType::Free;
+    Model.Joints = { FreeJoint };
+    TestTrue(TEXT("A free body may refer to an explicit static model frame"), Model.Validate(Error));
     FUBotPhysicsModelBuilder Builder;
     Builder.Model = OneBodyModel();
     FUBotPhysicsModel Built;
