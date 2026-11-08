@@ -3,6 +3,9 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Components/BoxComponent.h"
+#include "Serialization/MemoryReader.h"
+#include "Serialization/MemoryWriter.h"
+#include "Serialization/ObjectAndNameAsStringProxyArchive.h"
 #include "UBotPhysicsBindingComponent.h"
 #include "UBotPhysicsModel.h"
 #include "UBotPhysicsModelActor.h"
@@ -263,6 +266,81 @@ bool FUBotPhysicsModelWorldOwnershipTest::RunTest(const FString& Parameters)
     TestTrue(TEXT("Actual owner's state remains readable"), WorldB.GetSubsystem()->GetBodyState(Cast<UPrimitiveComponent>(ActorB->GetRootComponent()), State));
     BindingB->Unbind();
     TestEqual(TEXT("The actual owner can still unbind"), BindingB->GetBindingStatus(), EUBotPhysicsBindingStatus::Unbound);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FUBotPhysicsModelPersistentBindingTest, "UBotPhysics.Model.PersistentGeneratedBindings", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FUBotPhysicsModelPersistentBindingTest::RunTest(const FString& Parameters)
+{
+    using namespace UBotPhysicsTests;
+    FScopedTestBackend Backend;
+    FScopedPhysicsTestWorld World(false);
+    AUBotPhysicsModelActor* Actor = World.Get()->SpawnActor<AUBotPhysicsModelActor>();
+    if (!TestNotNull(TEXT("Generic model actor spawns"), Actor)) { return false; }
+    Actor->PhysicsBinding->bBindOnBeginPlay = false;
+    UUBotPhysicsModelAsset* Asset = NewObject<UUBotPhysicsModelAsset>(Actor);
+    Asset->Model = OneBodyModel();
+    FUBotPhysicsModelBody OtherBody;
+    OtherBody.Id = TEXT("other_body");
+    OtherBody.LocalTransform.SetTranslation(FVector(1.0, 0.0, 0.0));
+    Asset->Model.Bodies.Add(OtherBody);
+    for (const FUBotPhysicsModelBody& Body : Asset->Model.Bodies)
+    {
+        FUBotPhysicsModelJoint& Joint = Asset->Model.Joints.AddDefaulted_GetRef();
+        Joint.Id = Body.Id + TEXT(".free");
+        Joint.BodyId = Body.Id;
+        Joint.Type = EUBotPhysicsJointType::Free;
+    }
+    Actor->ModelAsset = Asset;
+    Actor->PhysicsBackend = BackendName;
+    if (!TestTrue(TEXT("Two model pivots are generated"), Actor->RebuildModelDisplay())
+        || !TestEqual(TEXT("Both bodies have explicit mappings"), Actor->PhysicsBinding->Bodies.Num(), 2))
+    {
+        return false;
+    }
+    TestFalse(TEXT("The model actor root is intentionally not a physical body"), Actor->GetRootComponent()->IsA<UPrimitiveComponent>());
+    TArray<FUBotPhysicsBodyBinding> LoadedBindings;
+    TArray<UPrimitiveComponent*> ExpectedComponents;
+    for (FUBotPhysicsBodyBinding& Mapping : Actor->PhysicsBinding->Bodies)
+    {
+        UPrimitiveComponent* Expected = Cast<UPrimitiveComponent>(Mapping.Component.GetComponent(Actor));
+        if (!TestNotNull(TEXT("Generated mapping resolves its body pivot"), Expected)) { return false; }
+        ExpectedComponents.Add(Expected);
+        TestEqual(TEXT("The persistent path is relative to this actor"), Mapping.Component.PathToComponent, Expected->GetPathName(Actor));
+        TestFalse(TEXT("The persistent path is not empty"), Mapping.Component.PathToComponent.IsEmpty());
+
+        // Exercise the same reflected property boundary used by packages. OverrideComponent is not
+        // reflected, so a fresh value read from the archive must resolve exclusively through the path.
+        TArray<uint8> Bytes;
+        {
+            FMemoryWriter Memory(Bytes, true);
+            FObjectAndNameAsStringProxyArchive Archive(Memory, false);
+            FUBotPhysicsBodyBinding::StaticStruct()->SerializeItem(Archive, &Mapping, nullptr);
+            TestFalse(TEXT("Binding serialization succeeds"), Archive.IsError());
+        }
+        FUBotPhysicsBodyBinding Loaded;
+        {
+            FMemoryReader Memory(Bytes, true);
+            FObjectAndNameAsStringProxyArchive Archive(Memory, false);
+            FUBotPhysicsBodyBinding::StaticStruct()->SerializeItem(Archive, &Loaded, nullptr);
+            TestFalse(TEXT("Binding deserialization succeeds"), Archive.IsError());
+        }
+        TestFalse(TEXT("The transient override did not cross the property archive"), Loaded.Component.OverrideComponent.IsValid());
+        TestEqual(TEXT("The stable model identity survived serialization"), Loaded.ModelBodyId, Mapping.ModelBodyId);
+        TestTrue(TEXT("A loaded reference resolves the correct generated primitive"), Loaded.Component.GetComponent(Actor) == Expected);
+        Mapping.Component.OverrideComponent.Reset();
+        TestTrue(TEXT("The live mapping also resolves without its override cache"), Mapping.Component.GetComponent(Actor) == Expected);
+        LoadedBindings.Add(MoveTemp(Loaded));
+    }
+    Actor->PhysicsBinding->Bodies = MoveTemp(LoadedBindings);
+    TestTrue(TEXT("Persisted references complete model binding without any override caches"), Actor->PhysicsBinding->Bind());
+    TestEqual(TEXT("Both persisted body references are bound"), Actor->PhysicsBinding->GetBoundComponents().Num(), 2);
+    for (const UPrimitiveComponent* Component : ExpectedComponents)
+    {
+        TestTrue(TEXT("The bound source provides the generated body, not the scene root"), Actor->PhysicsBinding->ProvidesBodyState(Component));
+    }
+    Actor->PhysicsBinding->Unbind();
     return true;
 }
 
