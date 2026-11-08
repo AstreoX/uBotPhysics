@@ -272,6 +272,11 @@ bool UUBotPhysicsSubsystem::BindBodies(UUBotPhysicsBindingComponent& Binding, FT
     using namespace UBot::Physics::Private;
 
     OutError = FText::GetEmpty();
+    if (Binding.GetWorld() != GetWorld())
+    {
+        OutError = LOCTEXT("BindingOtherWorld", "The physics binding belongs to a different world.");
+        return false;
+    }
     if (Binding.GetBindingStatus() == EUBotPhysicsBindingStatus::Bound)
     {
         return true;
@@ -529,6 +534,8 @@ bool UUBotPhysicsSubsystem::FailBind(UUBotPhysicsBindingComponent& Binding, EUBo
 
 void UUBotPhysicsSubsystem::UnbindBodies(UUBotPhysicsBindingComponent& Binding)
 {
+    // A caller in another World must not clear a binding while its actual owner still simulates it.
+    if (Binding.GetWorld() != GetWorld()) { return; }
     const TObjectKey<UUBotPhysicsBindingComponent> BindingKey(&Binding);
     TArray<TObjectKey<UPrimitiveComponent>, TInlineAllocator<8>> Keys;
     for (const TPair<TObjectKey<UPrimitiveComponent>, FBodySlot>& Pair : Bodies)

@@ -238,4 +238,32 @@ bool FUBotPhysicsModelScaledInstanceTest::RunTest(const FString& Parameters)
     return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FUBotPhysicsModelWorldOwnershipTest, "UBotPhysics.Model.CrossWorldOwnership", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FUBotPhysicsModelWorldOwnershipTest::RunTest(const FString& Parameters)
+{
+    using namespace UBotPhysicsTests;
+    FScopedTestBackend Backend;
+    FScopedPhysicsTestWorld WorldA(false);
+    FScopedPhysicsTestWorld WorldB(false);
+    AActor* ActorB = nullptr;
+    UUBotPhysicsTestBinding* BindingB = BindBox(WorldB, ActorB);
+    if (!TestTrue(TEXT("Binding belongs to World B"), BindingB->Bind())) { return false; }
+    const int64 InstanceId = BindingB->GetModelInstanceId();
+    WorldB.GetSubsystem()->AdvanceTo(0.0);
+    WorldB.GetSubsystem()->AdvanceTo(0.01);
+    WorldA.GetSubsystem()->UnbindBodies(*BindingB);
+    TestEqual(TEXT("Foreign World cannot clear binding state"), BindingB->GetBindingStatus(), EUBotPhysicsBindingStatus::Bound);
+    TestEqual(TEXT("Foreign World cannot clear instance identity"), BindingB->GetModelInstanceId(), InstanceId);
+    FText Error;
+    TestFalse(TEXT("Foreign World cannot claim an already bound model"), WorldA.GetSubsystem()->BindBodies(*BindingB, Error));
+    TestFalse(TEXT("Cross-world rejection has a reason"), Error.IsEmpty());
+    TestEqual(TEXT("Rejection leaves actual owner's binding intact"), BindingB->GetBindingStatus(), EUBotPhysicsBindingStatus::Bound);
+    FUBotBodyState State;
+    TestTrue(TEXT("Actual owner's state remains readable"), WorldB.GetSubsystem()->GetBodyState(Cast<UPrimitiveComponent>(ActorB->GetRootComponent()), State));
+    BindingB->Unbind();
+    TestEqual(TEXT("The actual owner can still unbind"), BindingB->GetBindingStatus(), EUBotPhysicsBindingStatus::Unbound);
+    return true;
+}
+
 #endif
