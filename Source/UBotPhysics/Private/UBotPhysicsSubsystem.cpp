@@ -1329,6 +1329,23 @@ void UUBotPhysicsSubsystem::RefreshSceneRecords()
 void UUBotPhysicsSubsystem::CollectOwnComponents(FName Backend, TSet<TObjectKey<UPrimitiveComponent>>& OutKeys) const
 {
     TArray<const USceneComponent*, TInlineAllocator<16>> Pending;
+    // Model-frame geometry is not attached below a moving body. Its generated display proxies still
+    // belong to that model, so they must not be reintroduced as foreign colliders in the same backend.
+    for (const TPair<int64, FModelSlot>& Pair : Models)
+    {
+        const UUBotPhysicsBindingComponent* Binding = Pair.Value.Binding.Get();
+        const AActor* Owner = Binding != nullptr ? Binding->GetOwner() : nullptr;
+        if (Pair.Value.Backend != Backend || Binding == nullptr || Binding->Model == nullptr || Owner == nullptr) { continue; }
+        TInlineComponentArray<UPrimitiveComponent*> Components;
+        Owner->GetComponents(Components);
+        for (const UPrimitiveComponent* Component : Components)
+        {
+            if (Component != nullptr && Component->ComponentHasTag(UBot::Physics::ModelGeometryTag))
+            {
+                OutKeys.Add(TObjectKey<UPrimitiveComponent>(Component));
+            }
+        }
+    }
     for (const TPair<TObjectKey<UPrimitiveComponent>, FBodySlot>& Pair : Bodies)
     {
         if (Pair.Value.Backend == Backend)

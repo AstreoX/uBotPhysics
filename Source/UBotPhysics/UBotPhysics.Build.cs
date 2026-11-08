@@ -19,7 +19,9 @@ public class UBotPhysics : ModuleRules
         {
             "ChaosCore",
             "Chaos",
-            "PhysicsCore"
+            "PhysicsCore",
+            "MeshDescription",
+            "StaticMeshDescription"
         });
     }
 }
