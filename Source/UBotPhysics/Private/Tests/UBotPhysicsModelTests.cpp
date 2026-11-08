@@ -41,6 +41,8 @@ bool FUBotPhysicsModelValidationTest::RunTest(const FString& Parameters)
     const FUBotPhysicsModelBody Duplicate = Model.Bodies[0];
     Model.Bodies.Add(Duplicate);
     TestFalse(TEXT("Duplicate identities are rejected"), Model.Validate(Error));
+    Model.Bodies[1].Id = TEXT("BODY");
+    TestTrue(TEXT("Case-distinct native names remain distinct"), Model.Validate(Error));
     Model.Bodies[1].Id = TEXT("child");
     Model.Bodies[1].ParentId = TEXT("body");
     Model.Bodies[0].ParentId = TEXT("child");

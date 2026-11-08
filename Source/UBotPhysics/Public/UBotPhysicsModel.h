@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Engine/DataAsset.h"
+#include "UBotPhysicsModelId.h"
 #include "UBotPhysicsModel.generated.h"
 
 /** Common collision and display geometry. Values are persistent; append only. */

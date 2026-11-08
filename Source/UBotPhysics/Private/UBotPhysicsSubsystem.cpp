@@ -379,12 +379,12 @@ bool UUBotPhysicsSubsystem::BindBodies(UUBotPhysicsBindingComponent& Binding, FT
             return Fail(EUBotPhysicsBindingStatus::Rejected, LOCTEXT("WrongModelBackend", "The model requires a different physics backend."));
         }
     }
-    TSet<FString> MappedBodies;
+    UBot::Physics::FModelIdSet MappedBodies;
     TArray<bool> WasSimulating;
     for (const FResolvedBody& Body : Resolved)
     {
         if (MappedBodies.Contains(Body.BodyId) || (Binding.Model != nullptr && !Desc.Model.Bodies.ContainsByPredicate(
-            [&Body](const FUBotPhysicsModelBody& Definition) { return Definition.Id == Body.BodyId; })))
+            [&Body](const FUBotPhysicsModelBody& Definition) { return Definition.Id.Equals(Body.BodyId, ESearchCase::CaseSensitive); })))
         {
             return Fail(EUBotPhysicsBindingStatus::Rejected, LOCTEXT("InvalidBodyMapping", "A model body mapping is duplicated or does not identify a body in the model."));
         }
@@ -464,7 +464,7 @@ bool UUBotPhysicsSubsystem::BindBodies(UUBotPhysicsBindingComponent& Binding, FT
     TSet<int32> Handles;
     for (const FResolvedBody& Body : Resolved)
     {
-        const FUBotPhysicsModelBodyHandle* Handle = Result.Bodies.FindByPredicate([&Body](const FUBotPhysicsModelBodyHandle& Item) { return Item.BodyId == Body.BodyId; });
+        const FUBotPhysicsModelBodyHandle* Handle = Result.Bodies.FindByPredicate([&Body](const FUBotPhysicsModelBodyHandle& Item) { return Item.BodyId.Equals(Body.BodyId, ESearchCase::CaseSensitive); });
         if (Handle == nullptr || Handle->Handle < 0 || Handles.Contains(Handle->Handle)) { bValidResult = false; }
         else { Handles.Add(Handle->Handle); }
     }
@@ -488,7 +488,7 @@ bool UUBotPhysicsSubsystem::BindBodies(UUBotPhysicsBindingComponent& Binding, FT
     for (int32 Index = 0; Index < Resolved.Num(); ++Index)
     {
         const FResolvedBody& ResolvedBody = Resolved[Index];
-        const int32 Handle = Result.Bodies.FindByPredicate([&ResolvedBody](const FUBotPhysicsModelBodyHandle& Item) { return Item.BodyId == ResolvedBody.BodyId; })->Handle;
+        const int32 Handle = Result.Bodies.FindByPredicate([&ResolvedBody](const FUBotPhysicsModelBodyHandle& Item) { return Item.BodyId.Equals(ResolvedBody.BodyId, ESearchCase::CaseSensitive); })->Handle;
         const TObjectKey<UPrimitiveComponent> Key(ResolvedBody.Component);
         FBodySlot& Body = Bodies.Add(Key);
         Body.Component = ResolvedBody.Component;
