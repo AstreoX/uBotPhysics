@@ -1,4 +1,5 @@
 #include "UBotPhysicsBackend.h"
+#include "Components/PrimitiveComponent.h"
 
 bool IUBotPhysicsSolver::AddModel(const FUBotPhysicsModelInstanceDesc& Desc, FUBotPhysicsModelInstanceResult& OutResult, FText& OutError)
 {
@@ -45,6 +46,14 @@ bool IUBotPhysicsSolver::AddModel(const FUBotPhysicsModelInstanceDesc& Desc, FUB
         }
         if (Handle < 0 || (Desc.IsCurrent && !Desc.IsCurrent()))
         {
+            if (Handle < 0)
+            {
+                const UPrimitiveComponent* Component = Body.Desc.Component.Get();
+                const FString ComponentPath = Component != nullptr ? Component->GetPathName() : Body.BodyId;
+                OutError = FText::Format(INVTEXT("Body '{0}' (component '{1}') was refused: {2}"),
+                    FText::FromString(Body.BodyId), FText::FromString(ComponentPath),
+                    OutError.IsEmpty() ? INVTEXT("No reason was provided by the backend.") : OutError);
+            }
             for (int32 Index = Handles.Num() - 1; Index >= 0; --Index)
             {
                 RemoveBody(Handles[Index]);
