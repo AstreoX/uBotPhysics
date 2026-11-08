@@ -128,10 +128,10 @@ struct UBOTPHYSICS_API FUBotPhysicsModelJoint
     /** Apply the scalar limits. */
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Physics")
     bool bLimited = false;
-    /** Initial absolute authored coordinates (no implicit reference subtraction). Scalar=1, ball=4 (xyzw), free=7 (xyz,xyzw), fixed=0. */
+    /** Initial absolute authored coordinates (no implicit reference subtraction). Scalar=1, ball=4 (xyzw), free=7 (xyz,xyzw), fixed=0. Initial free pose is in the model frame before instance placement. */
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Physics")
     TArray<double> InitialPosition;
-    /** Initial generalized velocities. Scalar=1, ball=3, free=6 (linear,angular), fixed=0. */
+    /** Initial generalized velocities. Scalar=1, ball=3, free=6 (linear,angular), fixed=0. Initial free linear velocity is in the model frame; free/ball angular velocity is body-local. */
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Physics")
     TArray<double> InitialVelocity;
 };
@@ -205,7 +205,12 @@ public:
     bool Finalize(FUBotPhysicsModel& OutModel, FText& OutError) const;
 };
 
-/** Read-only state of one joint at an integration endpoint, with independent position/velocity layouts. */
+/**
+ * Read-only state of one joint at an integration endpoint, with independent position/velocity layouts.
+ * SI and UE axes. Scalar coordinates retain their authored absolute reference convention. Ball position
+ * is a body-relative quaternion (xyzw), with body-local angular velocity. Free position is a world pose
+ * (xyz,xyzw) after instance placement; free velocity is world linear followed by body-local angular.
+ */
 struct FUBotPhysicsJointState
 {
     TArray<double> Position;
@@ -228,7 +233,7 @@ struct FUBotPhysicsBodyWrench
     FVector TorqueNewtonMeters = FVector::ZeroVector;
 };
 
-/** Generalized effort at one joint, in velocity-coordinate order: N for linear and Nm for angular DOFs. */
+/** Generalized effort in velocity-coordinate order: N for linear, Nm for angular DOFs. Free linear is world-frame; free/ball angular is body-local. */
 struct FUBotPhysicsJointForce
 {
     FString JointId;
