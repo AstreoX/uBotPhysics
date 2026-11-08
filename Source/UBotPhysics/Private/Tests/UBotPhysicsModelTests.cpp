@@ -5,6 +5,7 @@
 #include "Components/BoxComponent.h"
 #include "UBotPhysicsBindingComponent.h"
 #include "UBotPhysicsModel.h"
+#include "UBotPhysicsModelActor.h"
 #include "UBotPhysicsSubsystem.h"
 #include "UBotPhysicsTestTypes.h"
 #include "UBotPhysicsTestWorld.h"
@@ -167,6 +168,47 @@ bool FUBotPhysicsModelUnsupportedAtomicTest::RunTest(const FString& Parameters)
     auto* Solver = static_cast<FUBotPhysicsTestSolver*>(World.GetSubsystem()->FindSolver(BackendName));
     TestEqual(TEXT("No body was handed to the unsupported backend"), Solver->GetBodyCount(), 0);
     TestEqual(TEXT("Failed model owns no instance identity"), Binding->GetModelInstanceId(), static_cast<int64>(INDEX_NONE));
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FUBotPhysicsModelDisplayQueriesTest, "UBotPhysics.Model.DisplayQueries", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FUBotPhysicsModelDisplayQueriesTest::RunTest(const FString& Parameters)
+{
+    using namespace UBotPhysicsTests;
+    FScopedPhysicsTestWorld World(false);
+    AUBotPhysicsModelActor* Actor = World.Get()->SpawnActor<AUBotPhysicsModelActor>();
+    if (!TestNotNull(TEXT("Generic model actor spawns"), Actor)) { return false; }
+    Actor->PhysicsBinding->bBindOnBeginPlay = false;
+    UUBotPhysicsModelAsset* Asset = NewObject<UUBotPhysicsModelAsset>(Actor);
+    Asset->Model = OneBodyModel();
+    Asset->Model.Revision = FGuid::NewGuid();
+    FUBotPhysicsModelGeometry& Geometry = Asset->Model.Geometries.AddDefaulted_GetRef();
+    Geometry.Id = TEXT("exterior");
+    Geometry.BodyId = TEXT("body");
+    Geometry.Type = EUBotPhysicsGeometryType::Box;
+    Geometry.Size = FVector(0.25);
+    Geometry.bCollision = false;
+    Actor->ModelAsset = Asset;
+    TestTrue(TEXT("Common geometry builds without a backend"), Actor->RebuildModelDisplay());
+    FHitResult Hit;
+    FCollisionQueryParams ParametersForTrace(SCENE_QUERY_STAT(UBotPhysicsDisplay), false);
+    TestTrue(TEXT("Visual-only geometry is visible to UE scene queries"), World.Get()->LineTraceSingleByChannel(
+        Hit, FVector(-100.0, 0.0, 0.0), FVector(100.0, 0.0, 0.0), ECC_Visibility, ParametersForTrace));
+    TestTrue(TEXT("Query hit belongs to the model actor"), Hit.GetActor() == Actor);
+    UPrimitiveComponent* Display = Hit.GetComponent();
+    if (TestNotNull(TEXT("The generated display provides the query hit"), Display))
+    {
+        TestEqual(TEXT("Visual-only geometry has query-only collision"), Display->GetCollisionEnabled(), ECollisionEnabled::QueryOnly);
+        TestFalse(TEXT("Visual-only geometry has no physical collision"), CollisionEnabledHasPhysics(Display->GetCollisionEnabled()));
+        TestFalse(TEXT("The display does not run a second rigid-body simulation"), Display->IsSimulatingPhysics());
+    }
+    TInlineComponentArray<UPrimitiveComponent*> Before;
+    Actor->GetComponents(Before);
+    TestTrue(TEXT("The generic display can be rebuilt"), Actor->RebuildModelDisplay());
+    TInlineComponentArray<UPrimitiveComponent*> After;
+    Actor->GetComponents(After);
+    TestEqual(TEXT("Rebuild replaces components without accumulating proxies"), After.Num(), Before.Num());
     return true;
 }
 

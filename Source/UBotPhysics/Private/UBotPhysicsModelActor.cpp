@@ -236,7 +236,10 @@ bool AUBotPhysicsModelActor::RebuildModelDisplay()
         Component->SetMobility(EComponentMobility::Movable);
         Component->SetStaticMesh(Mesh);
         Component->ComponentTags.Add(UBot::Physics::ModelGeometryTag);
-        Component->SetCollisionProfileName(Geometry.bCollision ? UCollisionProfile::BlockAllDynamic_ProfileName : UCollisionProfile::NoCollision_ProfileName);
+        Component->SetCollisionProfileName(UCollisionProfile::BlockAllDynamic_ProfileName);
+        // Visual-only exterior geometry remains visible to scene queries without introducing physical
+        // contact proxies or being exported as foreign physics scene geometry.
+        if (!Geometry.bCollision) { Component->SetCollisionEnabled(ECollisionEnabled::QueryOnly); }
         Component->SetupAttachment(Geometry.BodyId.IsEmpty() ? GetRootComponent() : Bodies[Geometry.BodyId]);
         Component->SetRelativeTransform(DisplayTransform(Geometry.LocalTransform));
         AddInstanceComponent(Component);
