@@ -22,7 +22,7 @@ bool FUBotPhysicsModel::Validate(FText& OutError) const
     {
         return FailModel(OutError, TEXT("A physics model needs at least one body."));
     }
-    TMap<FString, const FUBotPhysicsModelBody*> BodyMap;
+    UBot::Physics::TModelIdMap<const FUBotPhysicsModelBody*> BodyMap;
     for (const FUBotPhysicsModelBody& Body : Bodies)
     {
         if (Body.Id.IsEmpty() || BodyMap.Contains(Body.Id))
@@ -45,7 +45,7 @@ bool FUBotPhysicsModel::Validate(FText& OutError) const
     }
     for (const FUBotPhysicsModelBody& Body : Bodies)
     {
-        TSet<FString> Seen;
+        UBot::Physics::FModelIdSet Seen;
         const FUBotPhysicsModelBody* Current = &Body;
         while (Current != nullptr && !Current->ParentId.IsEmpty())
         {
@@ -63,7 +63,7 @@ bool FUBotPhysicsModel::Validate(FText& OutError) const
         }
     }
 
-    TSet<FString> GeometryIds;
+    UBot::Physics::FModelIdSet GeometryIds;
     for (const FUBotPhysicsModelGeometry& Geometry : Geometries)
     {
         if (Geometry.Id.IsEmpty() || GeometryIds.Contains(Geometry.Id)
@@ -117,8 +117,8 @@ bool FUBotPhysicsModel::Validate(FText& OutError) const
         }
     }
 
-    TMap<FString, const FUBotPhysicsModelJoint*> JointMap;
-    TSet<FString> FreeBodies;
+    UBot::Physics::TModelIdMap<const FUBotPhysicsModelJoint*> JointMap;
+    UBot::Physics::FModelIdSet FreeBodies;
     for (const FUBotPhysicsModelJoint& Joint : Joints)
     {
         if (Joint.Id.IsEmpty() || JointMap.Contains(Joint.Id) || !BodyMap.Contains(Joint.BodyId)
@@ -171,7 +171,7 @@ bool FUBotPhysicsModel::Validate(FText& OutError) const
         }
 
     }
-    TSet<FString> DriveIds;
+    UBot::Physics::FModelIdSet DriveIds;
     for (const FUBotPhysicsModelDrive& Drive : Drives)
     {
         const FUBotPhysicsModelJoint* const* Joint = JointMap.Find(Drive.JointId);
