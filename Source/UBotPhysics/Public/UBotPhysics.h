@@ -15,6 +15,9 @@ namespace UBot::Physics
 
     /** Actor or component tag that keeps a component out of every backend's scene. */
     inline const FName NoSceneTag(TEXT("UBotPhysics.NoScene"));
+
+    /** Generated display geometry already present in its owner's bound model, including model-frame geoms. */
+    inline const FName ModelGeometryTag(TEXT("UBotPhysics.ModelGeometry"));
 }
 
 class FUBotPhysicsModule final : public IModuleInterface

@@ -21,6 +21,11 @@
             "Name": "UBotPhysics",
             "Type": "Runtime",
             "LoadingPhase": "Default"
+        },
+        {
+            "Name": "UBotPhysicsEditor",
+            "Type": "Editor",
+            "LoadingPhase": "PostEngineInit"
         }
     ],
     "UBot": {
