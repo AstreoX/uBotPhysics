@@ -10,9 +10,92 @@
     {
       "name": "UBotPhysics",
       "type": "Runtime"
+    },
+    {
+      "name": "UBotPhysicsEditor",
+      "type": "Editor"
     }
   ],
   "classes": [
+    {
+      "id": "AUBotPhysicsModelActor",
+      "displayName": "UBot Physics Model Actor",
+      "kind": "actor",
+      "parent": "AActor",
+      "module": "UBotPhysics",
+      "header": "Source/UBotPhysics/Public/UBotPhysicsModelActor.h",
+      "category": "",
+      "tooltip": "Generic presentation and binding of a model asset. Physical simulation remains entirely in its backend.",
+      "flags": {
+        "abstract": false,
+        "blueprintType": true,
+        "blueprintable": true,
+        "spawnable": true,
+        "deprecated": false
+      },
+      "properties": [
+        {
+          "id": "ModelAsset",
+          "displayName": "Model Asset",
+          "type": {
+            "category": "object",
+            "subtype": "UUBotPhysicsModelAsset",
+            "subtypeDisplay": "UBot Physics Model Asset",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "None",
+          "category": "Physics",
+          "access": "readOnly",
+          "editable": "anywhere",
+          "tooltip": "Immutable physics definition. Rebuild the display after selecting or reimporting an asset.",
+          "meta": {}
+        },
+        {
+          "id": "PhysicsBackend",
+          "displayName": "Physics Backend",
+          "type": {
+            "category": "name",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "None",
+          "category": "Physics",
+          "access": "readOnly",
+          "editable": "anywhere",
+          "tooltip": "Backend chosen for this instance; an asset's required extension supplies its default.",
+          "meta": {}
+        },
+        {
+          "id": "PhysicsBinding",
+          "displayName": "Physics Binding",
+          "type": {
+            "category": "object",
+            "subtype": "UUBotPhysicsBindingComponent",
+            "subtypeDisplay": "uBot Physics Binding",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "/Script/UBotPhysics.UBotPhysicsBindingComponent'/Script/UBotPhysics.Default__UBotPhysicsModelActor:PhysicsBinding'",
+          "category": "Physics",
+          "access": "readOnly",
+          "editable": "none",
+          "tooltip": "The common binding and state-source component, usable by attached presentation components.",
+          "meta": {}
+        }
+      ],
+      "nodes": [
+        "AUBotPhysicsModelActor.RebuildModelDisplay"
+      ]
+    },
     {
       "id": "UUBotPhysicsBindingComponent",
       "displayName": "uBot Physics Binding",
@@ -69,6 +152,25 @@
           "meta": {}
         },
         {
+          "id": "Model",
+          "displayName": "Model",
+          "type": {
+            "category": "object",
+            "subtype": "UUBotPhysicsModelAsset",
+            "subtypeDisplay": "UBot Physics Model Asset",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "None",
+          "category": "Physics",
+          "access": "readOnly",
+          "editable": "anywhere",
+          "tooltip": "Optional immutable common model. Empty builds independent free bodies from the components' collision geometry.",
+          "meta": {}
+        },
+        {
           "id": "bBindOnBeginPlay",
           "displayName": "Bind on Begin Play",
           "type": {
@@ -93,6 +195,7 @@
         "UUBotPhysicsBindingComponent.GetBindingError",
         "UUBotPhysicsBindingComponent.GetBindingStatus",
         "UUBotPhysicsBindingComponent.GetBoundComponents",
+        "UUBotPhysicsBindingComponent.GetModelInstanceId",
         "UUBotPhysicsBindingComponent.Unbind"
       ]
     },
@@ -118,11 +221,180 @@
         "UUBotPhysicsLibrary.GetDroppedPhysicsSteps",
         "UUBotPhysicsLibrary.GetPhysicsBackendCapabilities",
         "UUBotPhysicsLibrary.GetPhysicsBackendNames",
-        "UUBotPhysicsLibrary.GetPhysicsSceneStats"
+        "UUBotPhysicsLibrary.GetPhysicsBackendStatus",
+        "UUBotPhysicsLibrary.GetPhysicsSceneStats",
+        "UUBotPhysicsLibrary.ResetPhysicsBackend"
       ]
+    },
+    {
+      "id": "UUBotPhysicsModelAsset",
+      "displayName": "UBot Physics Model Asset",
+      "kind": "object",
+      "parent": "UDataAsset",
+      "module": "UBotPhysics",
+      "header": "Source/UBotPhysics/Public/UBotPhysicsModel.h",
+      "category": "",
+      "tooltip": "Imported model asset. Change imported physics through reimport; live models retain their revision.",
+      "flags": {
+        "abstract": false,
+        "blueprintType": true,
+        "blueprintable": false,
+        "spawnable": false,
+        "deprecated": false
+      },
+      "properties": [
+        {
+          "id": "Model",
+          "displayName": "Model",
+          "type": {
+            "category": "struct",
+            "subtype": "FUBotPhysicsModel",
+            "subtypeDisplay": "UBot Physics Model",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "(Revision=00000000000000000000000000000000)",
+          "category": "Physics",
+          "access": "readOnly",
+          "editable": "none",
+          "tooltip": "The sole runtime compilation definition.",
+          "meta": {}
+        }
+      ],
+      "nodes": []
+    },
+    {
+      "id": "UUBotPhysicsModelExtension",
+      "displayName": "UBot Physics Model Extension",
+      "kind": "object",
+      "parent": "UObject",
+      "module": "UBotPhysics",
+      "header": "Source/UBotPhysics/Public/UBotPhysicsModel.h",
+      "category": "",
+      "tooltip": "Backend-owned exclusive model data. Common fields must not also be stored as editable overrides here.",
+      "flags": {
+        "abstract": true,
+        "blueprintType": true,
+        "blueprintable": false,
+        "spawnable": false,
+        "deprecated": false
+      },
+      "properties": [
+        {
+          "id": "Backend",
+          "displayName": "Backend",
+          "type": {
+            "category": "name",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "None",
+          "category": "Physics",
+          "access": "readOnly",
+          "editable": "none",
+          "tooltip": "Required backend. None is invalid for an extension.",
+          "meta": {}
+        }
+      ],
+      "nodes": []
     }
   ],
   "nodes": [
+    {
+      "id": "AUBotPhysicsModelActor.RebuildModelDisplay",
+      "kind": "call",
+      "title": "Rebuild Model Display",
+      "subtitle": "Target is UBot Physics Model Actor",
+      "subtitleZh": "目标是UBot Physics Model Actor",
+      "owner": "AUBotPhysicsModelActor",
+      "member": "RebuildModelDisplay",
+      "category": "uBot|Physics",
+      "tooltip": "Recreates model body pivots, display geometry and stable body mappings. Refused while bound.",
+      "keywords": "",
+      "flags": {
+        "static": false,
+        "latent": false,
+        "deprecated": false,
+        "developmentOnly": false,
+        "callInEditor": true,
+        "compact": false
+      },
+      "compactTitle": "",
+      "inputs": [
+        {
+          "id": "execute",
+          "name": "",
+          "type": {
+            "category": "exec",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": false,
+          "tooltip": ""
+        },
+        {
+          "id": "self",
+          "name": "Target",
+          "type": {
+            "category": "object",
+            "subtype": "AUBotPhysicsModelActor",
+            "subtypeDisplay": "UBot Physics Model Actor",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": false,
+          "tooltip": ""
+        }
+      ],
+      "outputs": [
+        {
+          "id": "then",
+          "name": "",
+          "type": {
+            "category": "exec",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": false,
+          "tooltip": ""
+        },
+        {
+          "id": "ReturnValue",
+          "name": "Return Value",
+          "type": {
+            "category": "bool",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": false,
+          "tooltip": ""
+        }
+      ]
+    },
     {
       "id": "Break:FUBotPhysicsBodyBinding",
       "kind": "break",
@@ -192,6 +464,22 @@
           "default": "",
           "advanced": false,
           "tooltip": "Name of the body in the backend's model. None: the backend derives it."
+        },
+        {
+          "id": "ModelBodyId",
+          "name": "Model Body Id",
+          "type": {
+            "category": "string",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": false,
+          "tooltip": "Case-sensitive stable body identity in Model. Empty uses Body Name, or the sole body of a one-body model."
         }
       ]
     },
@@ -428,6 +716,798 @@
       ]
     },
     {
+      "id": "Break:FUBotPhysicsModel",
+      "kind": "break",
+      "title": "Break UBot Physics Model",
+      "subtitle": "",
+      "owner": "",
+      "member": "",
+      "category": "Utilities|Struct",
+      "tooltip": "Adds a node that breaks a 'UBot Physics Model' into its member fields",
+      "keywords": "",
+      "flags": {
+        "static": false,
+        "latent": false,
+        "deprecated": false,
+        "developmentOnly": false,
+        "callInEditor": false,
+        "compact": false
+      },
+      "compactTitle": "",
+      "inputs": [
+        {
+          "id": "UBotPhysicsModel",
+          "name": "UBot Physics Model",
+          "type": {
+            "category": "struct",
+            "subtype": "FUBotPhysicsModel",
+            "subtypeDisplay": "UBot Physics Model",
+            "container": "none",
+            "valueType": null,
+            "byRef": true,
+            "const": true
+          },
+          "default": "",
+          "advanced": false,
+          "tooltip": ""
+        }
+      ],
+      "outputs": [
+        {
+          "id": "Revision",
+          "name": "Revision",
+          "type": {
+            "category": "struct",
+            "subtype": "FGuid",
+            "subtypeDisplay": "Guid",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": false,
+          "tooltip": "Asset revision; instances retain this revision until removed."
+        },
+        {
+          "id": "Bodies",
+          "name": "Bodies",
+          "type": {
+            "category": "struct",
+            "subtype": "FUBotPhysicsModelBody",
+            "subtypeDisplay": "UBot Physics Model Body",
+            "container": "array",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": false,
+          "tooltip": "Rigid bodies in the model frame."
+        },
+        {
+          "id": "Geometries",
+          "name": "Geometries",
+          "type": {
+            "category": "struct",
+            "subtype": "FUBotPhysicsModelGeometry",
+            "subtypeDisplay": "UBot Physics Model Geometry",
+            "container": "array",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": true,
+          "tooltip": "Collision and display geometries."
+        },
+        {
+          "id": "Joints",
+          "name": "Joints",
+          "type": {
+            "category": "struct",
+            "subtype": "FUBotPhysicsModelJoint",
+            "subtypeDisplay": "UBot Physics Model Joint",
+            "container": "array",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": true,
+          "tooltip": "Joint definitions and initial coordinates."
+        },
+        {
+          "id": "Drives",
+          "name": "Drives",
+          "type": {
+            "category": "struct",
+            "subtype": "FUBotPhysicsModelDrive",
+            "subtypeDisplay": "UBot Physics Model Drive",
+            "container": "array",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": true,
+          "tooltip": "Common scalar physical drives."
+        },
+        {
+          "id": "Extension",
+          "name": "Extension",
+          "type": {
+            "category": "object",
+            "subtype": "UUBotPhysicsModelExtension",
+            "subtypeDisplay": "UBot Physics Model Extension",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": true,
+          "tooltip": "Exclusive native semantics, owned by the backend plugin."
+        }
+      ]
+    },
+    {
+      "id": "Break:FUBotPhysicsModelBody",
+      "kind": "break",
+      "title": "Break UBot Physics Model Body",
+      "subtitle": "",
+      "owner": "",
+      "member": "",
+      "category": "Utilities|Struct",
+      "tooltip": "Adds a node that breaks a 'UBot Physics Model Body' into its member fields",
+      "keywords": "",
+      "flags": {
+        "static": false,
+        "latent": false,
+        "deprecated": false,
+        "developmentOnly": false,
+        "callInEditor": false,
+        "compact": false
+      },
+      "compactTitle": "",
+      "inputs": [
+        {
+          "id": "UBotPhysicsModelBody",
+          "name": "UBot Physics Model Body",
+          "type": {
+            "category": "struct",
+            "subtype": "FUBotPhysicsModelBody",
+            "subtypeDisplay": "UBot Physics Model Body",
+            "container": "none",
+            "valueType": null,
+            "byRef": true,
+            "const": true
+          },
+          "default": "",
+          "advanced": false,
+          "tooltip": ""
+        }
+      ],
+      "outputs": [
+        {
+          "id": "Id",
+          "name": "Id",
+          "type": {
+            "category": "string",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": false,
+          "tooltip": "Stable, case-sensitive element identity within the model."
+        },
+        {
+          "id": "ParentId",
+          "name": "Parent Id",
+          "type": {
+            "category": "string",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": false,
+          "tooltip": "Stable parent body identity; empty means the model frame."
+        },
+        {
+          "id": "LocalTransform",
+          "name": "Local Transform",
+          "type": {
+            "category": "transform",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": true,
+          "tooltip": "Authored local pose, meters, UE axes, unit scale."
+        },
+        {
+          "id": "MassKilograms",
+          "name": "Mass Kilograms",
+          "type": {
+            "category": "double",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": true,
+          "tooltip": "Mass in kilograms. Zero permits massless structural links; the backend validates dynamic admissibility."
+        },
+        {
+          "id": "InertialTransform",
+          "name": "Inertial Transform",
+          "type": {
+            "category": "transform",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": true,
+          "tooltip": "Inertial frame relative to the body, translation in meters."
+        },
+        {
+          "id": "InertiaKilogramMetersSquared",
+          "name": "Inertia Kilogram Meters Squared",
+          "type": {
+            "category": "vector",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": true,
+          "tooltip": "Principal moments about the inertial frame, kg m squared."
+        },
+        {
+          "id": "bKinematic",
+          "name": "Kinematic",
+          "type": {
+            "category": "bool",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": true,
+          "tooltip": "This body is driven by kinematic targets instead of integration."
+        }
+      ]
+    },
+    {
+      "id": "Break:FUBotPhysicsModelDrive",
+      "kind": "break",
+      "title": "Break UBot Physics Model Drive",
+      "subtitle": "",
+      "owner": "",
+      "member": "",
+      "category": "Utilities|Struct",
+      "tooltip": "Adds a node that breaks a 'UBot Physics Model Drive' into its member fields",
+      "keywords": "",
+      "flags": {
+        "static": false,
+        "latent": false,
+        "deprecated": false,
+        "developmentOnly": false,
+        "callInEditor": false,
+        "compact": false
+      },
+      "compactTitle": "",
+      "inputs": [
+        {
+          "id": "UBotPhysicsModelDrive",
+          "name": "UBot Physics Model Drive",
+          "type": {
+            "category": "struct",
+            "subtype": "FUBotPhysicsModelDrive",
+            "subtypeDisplay": "UBot Physics Model Drive",
+            "container": "none",
+            "valueType": null,
+            "byRef": true,
+            "const": true
+          },
+          "default": "",
+          "advanced": false,
+          "tooltip": ""
+        }
+      ],
+      "outputs": [
+        {
+          "id": "Id",
+          "name": "Id",
+          "type": {
+            "category": "string",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": false,
+          "tooltip": "Stable input/drive identity."
+        },
+        {
+          "id": "JointId",
+          "name": "Joint Id",
+          "type": {
+            "category": "string",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": false,
+          "tooltip": "Driven hinge or slide joint identity."
+        },
+        {
+          "id": "Type",
+          "name": "Type",
+          "type": {
+            "category": "enum",
+            "subtype": "EUBotPhysicsDriveType",
+            "subtypeDisplay": "EUBot Physics Drive Type",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": true,
+          "tooltip": "Physical drive response."
+        },
+        {
+          "id": "Stiffness",
+          "name": "Stiffness",
+          "type": {
+            "category": "double",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": true,
+          "tooltip": "Position gain in N/m or Nm/rad."
+        },
+        {
+          "id": "Damping",
+          "name": "Damping",
+          "type": {
+            "category": "double",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": true,
+          "tooltip": "Velocity gain in Ns/m or Nms/rad."
+        }
+      ]
+    },
+    {
+      "id": "Break:FUBotPhysicsModelGeometry",
+      "kind": "break",
+      "title": "Break UBot Physics Model Geometry",
+      "subtitle": "",
+      "owner": "",
+      "member": "",
+      "category": "Utilities|Struct",
+      "tooltip": "Adds a node that breaks a 'UBot Physics Model Geometry' into its member fields",
+      "keywords": "",
+      "flags": {
+        "static": false,
+        "latent": false,
+        "deprecated": false,
+        "developmentOnly": false,
+        "callInEditor": false,
+        "compact": false
+      },
+      "compactTitle": "",
+      "inputs": [
+        {
+          "id": "UBotPhysicsModelGeometry",
+          "name": "UBot Physics Model Geometry",
+          "type": {
+            "category": "struct",
+            "subtype": "FUBotPhysicsModelGeometry",
+            "subtypeDisplay": "UBot Physics Model Geometry",
+            "container": "none",
+            "valueType": null,
+            "byRef": true,
+            "const": true
+          },
+          "default": "",
+          "advanced": false,
+          "tooltip": ""
+        }
+      ],
+      "outputs": [
+        {
+          "id": "Id",
+          "name": "Id",
+          "type": {
+            "category": "string",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": false,
+          "tooltip": "Stable geometry identity within the model."
+        },
+        {
+          "id": "BodyId",
+          "name": "Body Id",
+          "type": {
+            "category": "string",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": false,
+          "tooltip": "Body identity; empty means fixed to the model frame."
+        },
+        {
+          "id": "Type",
+          "name": "Type",
+          "type": {
+            "category": "enum",
+            "subtype": "EUBotPhysicsGeometryType",
+            "subtypeDisplay": "EUBot Physics Geometry Type",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": true,
+          "tooltip": "Geometry kind. Mesh collisions may require an explicit convex approximation policy."
+        },
+        {
+          "id": "LocalTransform",
+          "name": "Local Transform",
+          "type": {
+            "category": "transform",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": true,
+          "tooltip": "Shape pose relative to its body, meters, unit scale."
+        },
+        {
+          "id": "Size",
+          "name": "Size",
+          "type": {
+            "category": "vector",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": true,
+          "tooltip": "Sphere radius X; box/ellipsoid half extents; capsule/cylinder radius X and half length Z, meters."
+        },
+        {
+          "id": "Resource",
+          "name": "Resource",
+          "type": {
+            "category": "string",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": true,
+          "tooltip": "Mesh or heightfield asset name within the model's backend resource package."
+        },
+        {
+          "id": "Vertices",
+          "name": "Vertices",
+          "type": {
+            "category": "vector",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "array",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": true,
+          "tooltip": "Explicit vertices, in the shape frame, meters."
+        },
+        {
+          "id": "Indices",
+          "name": "Indices",
+          "type": {
+            "category": "int",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "array",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": true,
+          "tooltip": "Triangle vertex indices."
+        },
+        {
+          "id": "bCollision",
+          "name": "Collision",
+          "type": {
+            "category": "bool",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": true,
+          "tooltip": "Whether this shape participates in collision."
+        },
+        {
+          "id": "Color",
+          "name": "Color",
+          "type": {
+            "category": "struct",
+            "subtype": "FLinearColor",
+            "subtypeDisplay": "Linear Color",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": true,
+          "tooltip": "Display color; this does not define physical contact parameters."
+        }
+      ]
+    },
+    {
+      "id": "Break:FUBotPhysicsModelJoint",
+      "kind": "break",
+      "title": "Break UBot Physics Model Joint",
+      "subtitle": "",
+      "owner": "",
+      "member": "",
+      "category": "Utilities|Struct",
+      "tooltip": "Adds a node that breaks a 'UBot Physics Model Joint' into its member fields",
+      "keywords": "",
+      "flags": {
+        "static": false,
+        "latent": false,
+        "deprecated": false,
+        "developmentOnly": false,
+        "callInEditor": false,
+        "compact": false
+      },
+      "compactTitle": "",
+      "inputs": [
+        {
+          "id": "UBotPhysicsModelJoint",
+          "name": "UBot Physics Model Joint",
+          "type": {
+            "category": "struct",
+            "subtype": "FUBotPhysicsModelJoint",
+            "subtypeDisplay": "UBot Physics Model Joint",
+            "container": "none",
+            "valueType": null,
+            "byRef": true,
+            "const": true
+          },
+          "default": "",
+          "advanced": false,
+          "tooltip": ""
+        }
+      ],
+      "outputs": [
+        {
+          "id": "Id",
+          "name": "Id",
+          "type": {
+            "category": "string",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": false,
+          "tooltip": "Stable joint identity."
+        },
+        {
+          "id": "BodyId",
+          "name": "Body Id",
+          "type": {
+            "category": "string",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": false,
+          "tooltip": "Body this joint moves relative to its parent."
+        },
+        {
+          "id": "Type",
+          "name": "Type",
+          "type": {
+            "category": "enum",
+            "subtype": "EUBotPhysicsJointType",
+            "subtypeDisplay": "EUBot Physics Joint Type",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": true,
+          "tooltip": "Generalized-coordinate joint type."
+        },
+        {
+          "id": "PositionMeters",
+          "name": "Position Meters",
+          "type": {
+            "category": "vector",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": true,
+          "tooltip": "Joint origin in the body's frame, meters."
+        },
+        {
+          "id": "Axis",
+          "name": "Axis",
+          "type": {
+            "category": "vector",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": true,
+          "tooltip": "Unit joint axis in the body frame; axial for hinge, polar for slide."
+        },
+        {
+          "id": "Limits",
+          "name": "Limits",
+          "type": {
+            "category": "struct",
+            "subtype": "FVector2D",
+            "subtypeDisplay": "Vector 2D",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": true,
+          "tooltip": "Lower and upper limits, radians or meters. Ball: zero lower and angular cone upper; ignored unless Limited."
+        },
+        {
+          "id": "bLimited",
+          "name": "Limited",
+          "type": {
+            "category": "bool",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": true,
+          "tooltip": "Apply the scalar limits."
+        },
+        {
+          "id": "InitialPosition",
+          "name": "Initial Position",
+          "type": {
+            "category": "double",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "array",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": true,
+          "tooltip": "Initial absolute authored coordinates (no implicit reference subtraction). Scalar=1, ball=4 (xyzw), free=7 (xyz,xyzw), fixed=0. Initial free pose is in the model frame before instance placement."
+        },
+        {
+          "id": "InitialVelocity",
+          "name": "Initial Velocity",
+          "type": {
+            "category": "double",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "array",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": true,
+          "tooltip": "Initial generalized velocities. Scalar=1, ball=3, free=6 (linear,angular), fixed=0. Initial free linear velocity is in the model frame; free/ball angular velocity is body-local."
+        }
+      ]
+    },
+    {
       "id": "Break:FUBotPhysicsSceneStats",
       "kind": "break",
       "title": "Break UBot Physics Scene Stats",
@@ -598,6 +1678,201 @@
             "category": "struct",
             "subtype": "FUBotPhysicsCapabilities",
             "subtypeDisplay": "UBot Physics Capabilities",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": false,
+          "tooltip": ""
+        }
+      ]
+    },
+    {
+      "id": "Make:FUBotPhysicsModel",
+      "kind": "make",
+      "title": "Make UBot Physics Model",
+      "subtitle": "",
+      "owner": "",
+      "member": "",
+      "category": "Utilities|Struct",
+      "tooltip": "Adds a node that create a 'UBot Physics Model' from its members",
+      "keywords": "",
+      "flags": {
+        "static": false,
+        "latent": false,
+        "deprecated": false,
+        "developmentOnly": false,
+        "callInEditor": false,
+        "compact": false
+      },
+      "compactTitle": "",
+      "inputs": [],
+      "outputs": [
+        {
+          "id": "UBotPhysicsModel",
+          "name": "UBot Physics Model",
+          "type": {
+            "category": "struct",
+            "subtype": "FUBotPhysicsModel",
+            "subtypeDisplay": "UBot Physics Model",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": false,
+          "tooltip": ""
+        }
+      ]
+    },
+    {
+      "id": "Make:FUBotPhysicsModelBody",
+      "kind": "make",
+      "title": "Make UBot Physics Model Body",
+      "subtitle": "",
+      "owner": "",
+      "member": "",
+      "category": "Utilities|Struct",
+      "tooltip": "Adds a node that create a 'UBot Physics Model Body' from its members",
+      "keywords": "",
+      "flags": {
+        "static": false,
+        "latent": false,
+        "deprecated": false,
+        "developmentOnly": false,
+        "callInEditor": false,
+        "compact": false
+      },
+      "compactTitle": "",
+      "inputs": [],
+      "outputs": [
+        {
+          "id": "UBotPhysicsModelBody",
+          "name": "UBot Physics Model Body",
+          "type": {
+            "category": "struct",
+            "subtype": "FUBotPhysicsModelBody",
+            "subtypeDisplay": "UBot Physics Model Body",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": false,
+          "tooltip": ""
+        }
+      ]
+    },
+    {
+      "id": "Make:FUBotPhysicsModelDrive",
+      "kind": "make",
+      "title": "Make UBot Physics Model Drive",
+      "subtitle": "",
+      "owner": "",
+      "member": "",
+      "category": "Utilities|Struct",
+      "tooltip": "Adds a node that create a 'UBot Physics Model Drive' from its members",
+      "keywords": "",
+      "flags": {
+        "static": false,
+        "latent": false,
+        "deprecated": false,
+        "developmentOnly": false,
+        "callInEditor": false,
+        "compact": false
+      },
+      "compactTitle": "",
+      "inputs": [],
+      "outputs": [
+        {
+          "id": "UBotPhysicsModelDrive",
+          "name": "UBot Physics Model Drive",
+          "type": {
+            "category": "struct",
+            "subtype": "FUBotPhysicsModelDrive",
+            "subtypeDisplay": "UBot Physics Model Drive",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": false,
+          "tooltip": ""
+        }
+      ]
+    },
+    {
+      "id": "Make:FUBotPhysicsModelGeometry",
+      "kind": "make",
+      "title": "Make UBot Physics Model Geometry",
+      "subtitle": "",
+      "owner": "",
+      "member": "",
+      "category": "Utilities|Struct",
+      "tooltip": "Adds a node that create a 'UBot Physics Model Geometry' from its members",
+      "keywords": "",
+      "flags": {
+        "static": false,
+        "latent": false,
+        "deprecated": false,
+        "developmentOnly": false,
+        "callInEditor": false,
+        "compact": false
+      },
+      "compactTitle": "",
+      "inputs": [],
+      "outputs": [
+        {
+          "id": "UBotPhysicsModelGeometry",
+          "name": "UBot Physics Model Geometry",
+          "type": {
+            "category": "struct",
+            "subtype": "FUBotPhysicsModelGeometry",
+            "subtypeDisplay": "UBot Physics Model Geometry",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": false,
+          "tooltip": ""
+        }
+      ]
+    },
+    {
+      "id": "Make:FUBotPhysicsModelJoint",
+      "kind": "make",
+      "title": "Make UBot Physics Model Joint",
+      "subtitle": "",
+      "owner": "",
+      "member": "",
+      "category": "Utilities|Struct",
+      "tooltip": "Adds a node that create a 'UBot Physics Model Joint' from its members",
+      "keywords": "",
+      "flags": {
+        "static": false,
+        "latent": false,
+        "deprecated": false,
+        "developmentOnly": false,
+        "callInEditor": false,
+        "compact": false
+      },
+      "compactTitle": "",
+      "inputs": [],
+      "outputs": [
+        {
+          "id": "UBotPhysicsModelJoint",
+          "name": "UBot Physics Model Joint",
+          "type": {
+            "category": "struct",
+            "subtype": "FUBotPhysicsModelJoint",
+            "subtypeDisplay": "UBot Physics Model Joint",
             "container": "none",
             "valueType": null,
             "byRef": false,
@@ -909,6 +2184,63 @@
       ]
     },
     {
+      "id": "UUBotPhysicsBindingComponent.GetModelInstanceId",
+      "kind": "pure",
+      "title": "Get Model Instance Id",
+      "subtitle": "Target is uBot Physics Binding",
+      "subtitleZh": "目标是uBot Physics Binding",
+      "owner": "UUBotPhysicsBindingComponent",
+      "member": "GetModelInstanceId",
+      "category": "uBot|Physics",
+      "tooltip": "World-local model instance identity. It changes on every successful Bind and is invalid when unbound.",
+      "keywords": "",
+      "flags": {
+        "static": false,
+        "latent": false,
+        "deprecated": false,
+        "developmentOnly": false,
+        "callInEditor": false,
+        "compact": false
+      },
+      "compactTitle": "",
+      "inputs": [
+        {
+          "id": "self",
+          "name": "Target",
+          "type": {
+            "category": "object",
+            "subtype": "UUBotPhysicsBindingComponent",
+            "subtypeDisplay": "uBot Physics Binding",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": false,
+          "tooltip": ""
+        }
+      ],
+      "outputs": [
+        {
+          "id": "ReturnValue",
+          "name": "Return Value",
+          "type": {
+            "category": "int64",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": false,
+          "tooltip": ""
+        }
+      ]
+    },
+    {
       "id": "UUBotPhysicsBindingComponent.Unbind",
       "kind": "call",
       "title": "Unbind Physics Bodies",
@@ -1205,6 +2537,78 @@
       ]
     },
     {
+      "id": "UUBotPhysicsLibrary.GetPhysicsBackendStatus",
+      "kind": "pure",
+      "title": "Get Physics Backend Status",
+      "subtitle": "",
+      "owner": "UUBotPhysicsLibrary",
+      "member": "GetPhysicsBackendStatus",
+      "category": "uBot|Physics",
+      "tooltip": "Runtime condition of the complete backend scene; Error explains a suspension.",
+      "keywords": "",
+      "flags": {
+        "static": true,
+        "latent": false,
+        "deprecated": false,
+        "developmentOnly": false,
+        "callInEditor": false,
+        "compact": false
+      },
+      "compactTitle": "",
+      "inputs": [
+        {
+          "id": "Backend",
+          "name": "Backend",
+          "type": {
+            "category": "name",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "None",
+          "advanced": false,
+          "tooltip": ""
+        }
+      ],
+      "outputs": [
+        {
+          "id": "Error",
+          "name": "Error",
+          "type": {
+            "category": "text",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": false,
+          "tooltip": ""
+        },
+        {
+          "id": "ReturnValue",
+          "name": "Return Value",
+          "type": {
+            "category": "enum",
+            "subtype": "EUBotPhysicsBackendStatus",
+            "subtypeDisplay": "EUBot Physics Backend Status",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": false,
+          "tooltip": ""
+        }
+      ]
+    },
+    {
       "id": "UUBotPhysicsLibrary.GetPhysicsSceneStats",
       "kind": "pure",
       "title": "Get Physics Scene Stats",
@@ -1275,6 +2679,110 @@
           "tooltip": ""
         }
       ]
+    },
+    {
+      "id": "UUBotPhysicsLibrary.ResetPhysicsBackend",
+      "kind": "call",
+      "title": "Reset Physics Backend",
+      "subtitle": "",
+      "owner": "UUBotPhysicsLibrary",
+      "member": "ResetPhysicsBackend",
+      "category": "uBot|Physics",
+      "tooltip": "Resets every model of this backend and starts a new simulation-time epoch.",
+      "keywords": "",
+      "flags": {
+        "static": true,
+        "latent": false,
+        "deprecated": false,
+        "developmentOnly": false,
+        "callInEditor": false,
+        "compact": false
+      },
+      "compactTitle": "",
+      "inputs": [
+        {
+          "id": "execute",
+          "name": "",
+          "type": {
+            "category": "exec",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": false,
+          "tooltip": ""
+        },
+        {
+          "id": "Backend",
+          "name": "Backend",
+          "type": {
+            "category": "name",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "None",
+          "advanced": false,
+          "tooltip": ""
+        }
+      ],
+      "outputs": [
+        {
+          "id": "then",
+          "name": "",
+          "type": {
+            "category": "exec",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": false,
+          "tooltip": ""
+        },
+        {
+          "id": "Error",
+          "name": "Error",
+          "type": {
+            "category": "text",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": false,
+          "tooltip": ""
+        },
+        {
+          "id": "ReturnValue",
+          "name": "Return Value",
+          "type": {
+            "category": "bool",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "default": "",
+          "advanced": false,
+          "tooltip": ""
+        }
+      ]
     }
   ],
   "structs": [
@@ -1313,6 +2821,21 @@
             "const": false
           },
           "tooltip": "Primitive component of the binding's own actor that shows the body; it must be Movable.",
+          "access": "readOnly"
+        },
+        {
+          "id": "ModelBodyId",
+          "displayName": "Model Body Id",
+          "type": {
+            "category": "string",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "tooltip": "Case-sensitive stable body identity in Model. Empty uses Body Name, or the sole body of a one-body model.",
           "access": "readOnly"
         }
       ],
@@ -1511,6 +3034,616 @@
       "break": "Break:FUBotPhysicsCapabilities"
     },
     {
+      "id": "FUBotPhysicsModel",
+      "displayName": "UBot Physics Model",
+      "module": "UBotPhysics",
+      "header": "Source/UBotPhysics/Public/UBotPhysicsModel.h",
+      "tooltip": "Immutable while instantiated. This and its exclusive extension are the only runtime compilation input.",
+      "fields": [
+        {
+          "id": "Bodies",
+          "displayName": "Bodies",
+          "type": {
+            "category": "struct",
+            "subtype": "FUBotPhysicsModelBody",
+            "subtypeDisplay": "UBot Physics Model Body",
+            "container": "array",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "tooltip": "Rigid bodies in the model frame.",
+          "access": "readOnly"
+        },
+        {
+          "id": "Drives",
+          "displayName": "Drives",
+          "type": {
+            "category": "struct",
+            "subtype": "FUBotPhysicsModelDrive",
+            "subtypeDisplay": "UBot Physics Model Drive",
+            "container": "array",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "tooltip": "Common scalar physical drives.",
+          "access": "readOnly"
+        },
+        {
+          "id": "Extension",
+          "displayName": "Extension",
+          "type": {
+            "category": "object",
+            "subtype": "UUBotPhysicsModelExtension",
+            "subtypeDisplay": "UBot Physics Model Extension",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "tooltip": "Exclusive native semantics, owned by the backend plugin.",
+          "access": "readOnly"
+        },
+        {
+          "id": "Geometries",
+          "displayName": "Geometries",
+          "type": {
+            "category": "struct",
+            "subtype": "FUBotPhysicsModelGeometry",
+            "subtypeDisplay": "UBot Physics Model Geometry",
+            "container": "array",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "tooltip": "Collision and display geometries.",
+          "access": "readOnly"
+        },
+        {
+          "id": "Joints",
+          "displayName": "Joints",
+          "type": {
+            "category": "struct",
+            "subtype": "FUBotPhysicsModelJoint",
+            "subtypeDisplay": "UBot Physics Model Joint",
+            "container": "array",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "tooltip": "Joint definitions and initial coordinates.",
+          "access": "readOnly"
+        },
+        {
+          "id": "Revision",
+          "displayName": "Revision",
+          "type": {
+            "category": "struct",
+            "subtype": "FGuid",
+            "subtypeDisplay": "Guid",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "tooltip": "Asset revision; instances retain this revision until removed.",
+          "access": "readOnly"
+        }
+      ],
+      "make": "Make:FUBotPhysicsModel",
+      "break": "Break:FUBotPhysicsModel"
+    },
+    {
+      "id": "FUBotPhysicsModelBody",
+      "displayName": "UBot Physics Model Body",
+      "module": "UBotPhysics",
+      "header": "Source/UBotPhysics/Public/UBotPhysicsModel.h",
+      "tooltip": "A rigid body, relative to its parent (empty parent means the model frame), SI and UE axes.",
+      "fields": [
+        {
+          "id": "Id",
+          "displayName": "Id",
+          "type": {
+            "category": "string",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "tooltip": "Stable, case-sensitive element identity within the model.",
+          "access": "readOnly"
+        },
+        {
+          "id": "InertiaKilogramMetersSquared",
+          "displayName": "Inertia Kilogram Meters Squared",
+          "type": {
+            "category": "vector",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "tooltip": "Principal moments about the inertial frame, kg m squared.",
+          "access": "readOnly"
+        },
+        {
+          "id": "InertialTransform",
+          "displayName": "Inertial Transform",
+          "type": {
+            "category": "transform",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "tooltip": "Inertial frame relative to the body, translation in meters.",
+          "access": "readOnly"
+        },
+        {
+          "id": "LocalTransform",
+          "displayName": "Local Transform",
+          "type": {
+            "category": "transform",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "tooltip": "Authored local pose, meters, UE axes, unit scale.",
+          "access": "readOnly"
+        },
+        {
+          "id": "MassKilograms",
+          "displayName": "Mass Kilograms",
+          "type": {
+            "category": "double",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "tooltip": "Mass in kilograms. Zero permits massless structural links; the backend validates dynamic admissibility.",
+          "access": "readOnly"
+        },
+        {
+          "id": "ParentId",
+          "displayName": "Parent Id",
+          "type": {
+            "category": "string",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "tooltip": "Stable parent body identity; empty means the model frame.",
+          "access": "readOnly"
+        },
+        {
+          "id": "bKinematic",
+          "displayName": "Kinematic",
+          "type": {
+            "category": "bool",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "tooltip": "This body is driven by kinematic targets instead of integration.",
+          "access": "readOnly"
+        }
+      ],
+      "make": "Make:FUBotPhysicsModelBody",
+      "break": "Break:FUBotPhysicsModelBody"
+    },
+    {
+      "id": "FUBotPhysicsModelDrive",
+      "displayName": "UBot Physics Model Drive",
+      "module": "UBotPhysics",
+      "header": "Source/UBotPhysics/Public/UBotPhysicsModel.h",
+      "tooltip": "An explicitly authored scalar drive. Native actuators must not be generated a second time here.",
+      "fields": [
+        {
+          "id": "Damping",
+          "displayName": "Damping",
+          "type": {
+            "category": "double",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "tooltip": "Velocity gain in Ns/m or Nms/rad.",
+          "access": "readOnly"
+        },
+        {
+          "id": "Id",
+          "displayName": "Id",
+          "type": {
+            "category": "string",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "tooltip": "Stable input/drive identity.",
+          "access": "readOnly"
+        },
+        {
+          "id": "JointId",
+          "displayName": "Joint Id",
+          "type": {
+            "category": "string",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "tooltip": "Driven hinge or slide joint identity.",
+          "access": "readOnly"
+        },
+        {
+          "id": "Stiffness",
+          "displayName": "Stiffness",
+          "type": {
+            "category": "double",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "tooltip": "Position gain in N/m or Nm/rad.",
+          "access": "readOnly"
+        },
+        {
+          "id": "Type",
+          "displayName": "Type",
+          "type": {
+            "category": "enum",
+            "subtype": "EUBotPhysicsDriveType",
+            "subtypeDisplay": "EUBot Physics Drive Type",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "tooltip": "Physical drive response.",
+          "access": "readOnly"
+        }
+      ],
+      "make": "Make:FUBotPhysicsModelDrive",
+      "break": "Break:FUBotPhysicsModelDrive"
+    },
+    {
+      "id": "FUBotPhysicsModelGeometry",
+      "displayName": "UBot Physics Model Geometry",
+      "module": "UBotPhysics",
+      "header": "Source/UBotPhysics/Public/UBotPhysicsModel.h",
+      "tooltip": "Shape geometry shared by compilation and presentation; native material semantics belong to the extension.",
+      "fields": [
+        {
+          "id": "BodyId",
+          "displayName": "Body Id",
+          "type": {
+            "category": "string",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "tooltip": "Body identity; empty means fixed to the model frame.",
+          "access": "readOnly"
+        },
+        {
+          "id": "Color",
+          "displayName": "Color",
+          "type": {
+            "category": "struct",
+            "subtype": "FLinearColor",
+            "subtypeDisplay": "Linear Color",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "tooltip": "Display color; this does not define physical contact parameters.",
+          "access": "readOnly"
+        },
+        {
+          "id": "Id",
+          "displayName": "Id",
+          "type": {
+            "category": "string",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "tooltip": "Stable geometry identity within the model.",
+          "access": "readOnly"
+        },
+        {
+          "id": "Indices",
+          "displayName": "Indices",
+          "type": {
+            "category": "int",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "array",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "tooltip": "Triangle vertex indices.",
+          "access": "readOnly"
+        },
+        {
+          "id": "LocalTransform",
+          "displayName": "Local Transform",
+          "type": {
+            "category": "transform",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "tooltip": "Shape pose relative to its body, meters, unit scale.",
+          "access": "readOnly"
+        },
+        {
+          "id": "Resource",
+          "displayName": "Resource",
+          "type": {
+            "category": "string",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "tooltip": "Mesh or heightfield asset name within the model's backend resource package.",
+          "access": "readOnly"
+        },
+        {
+          "id": "Size",
+          "displayName": "Size",
+          "type": {
+            "category": "vector",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "tooltip": "Sphere radius X; box/ellipsoid half extents; capsule/cylinder radius X and half length Z, meters.",
+          "access": "readOnly"
+        },
+        {
+          "id": "Type",
+          "displayName": "Type",
+          "type": {
+            "category": "enum",
+            "subtype": "EUBotPhysicsGeometryType",
+            "subtypeDisplay": "EUBot Physics Geometry Type",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "tooltip": "Geometry kind. Mesh collisions may require an explicit convex approximation policy.",
+          "access": "readOnly"
+        },
+        {
+          "id": "Vertices",
+          "displayName": "Vertices",
+          "type": {
+            "category": "vector",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "array",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "tooltip": "Explicit vertices, in the shape frame, meters.",
+          "access": "readOnly"
+        },
+        {
+          "id": "bCollision",
+          "displayName": "Collision",
+          "type": {
+            "category": "bool",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "tooltip": "Whether this shape participates in collision.",
+          "access": "readOnly"
+        }
+      ],
+      "make": "Make:FUBotPhysicsModelGeometry",
+      "break": "Break:FUBotPhysicsModelGeometry"
+    },
+    {
+      "id": "FUBotPhysicsModelJoint",
+      "displayName": "UBot Physics Model Joint",
+      "module": "UBotPhysics",
+      "header": "Source/UBotPhysics/Public/UBotPhysicsModel.h",
+      "tooltip": "A joint attached to a body; several scalar joints on one body are permitted.",
+      "fields": [
+        {
+          "id": "Axis",
+          "displayName": "Axis",
+          "type": {
+            "category": "vector",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "tooltip": "Unit joint axis in the body frame; axial for hinge, polar for slide.",
+          "access": "readOnly"
+        },
+        {
+          "id": "BodyId",
+          "displayName": "Body Id",
+          "type": {
+            "category": "string",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "tooltip": "Body this joint moves relative to its parent.",
+          "access": "readOnly"
+        },
+        {
+          "id": "Id",
+          "displayName": "Id",
+          "type": {
+            "category": "string",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "tooltip": "Stable joint identity.",
+          "access": "readOnly"
+        },
+        {
+          "id": "InitialPosition",
+          "displayName": "Initial Position",
+          "type": {
+            "category": "double",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "array",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "tooltip": "Initial absolute authored coordinates (no implicit reference subtraction). Scalar=1, ball=4 (xyzw), free=7 (xyz,xyzw), fixed=0. Initial free pose is in the model frame before instance placement.",
+          "access": "readOnly"
+        },
+        {
+          "id": "InitialVelocity",
+          "displayName": "Initial Velocity",
+          "type": {
+            "category": "double",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "array",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "tooltip": "Initial generalized velocities. Scalar=1, ball=3, free=6 (linear,angular), fixed=0. Initial free linear velocity is in the model frame; free/ball angular velocity is body-local.",
+          "access": "readOnly"
+        },
+        {
+          "id": "Limits",
+          "displayName": "Limits",
+          "type": {
+            "category": "struct",
+            "subtype": "FVector2D",
+            "subtypeDisplay": "Vector 2D",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "tooltip": "Lower and upper limits, radians or meters. Ball: zero lower and angular cone upper; ignored unless Limited.",
+          "access": "readOnly"
+        },
+        {
+          "id": "PositionMeters",
+          "displayName": "Position Meters",
+          "type": {
+            "category": "vector",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "tooltip": "Joint origin in the body's frame, meters.",
+          "access": "readOnly"
+        },
+        {
+          "id": "Type",
+          "displayName": "Type",
+          "type": {
+            "category": "enum",
+            "subtype": "EUBotPhysicsJointType",
+            "subtypeDisplay": "EUBot Physics Joint Type",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "tooltip": "Generalized-coordinate joint type.",
+          "access": "readOnly"
+        },
+        {
+          "id": "bLimited",
+          "displayName": "Limited",
+          "type": {
+            "category": "bool",
+            "subtype": "",
+            "subtypeDisplay": "",
+            "container": "none",
+            "valueType": null,
+            "byRef": false,
+            "const": false
+          },
+          "tooltip": "Apply the scalar limits.",
+          "access": "readOnly"
+        }
+      ],
+      "make": "Make:FUBotPhysicsModelJoint",
+      "break": "Break:FUBotPhysicsModelJoint"
+    },
+    {
       "id": "FUBotPhysicsSceneStats",
       "displayName": "UBot Physics Scene Stats",
       "module": "UBotPhysics",
@@ -1584,6 +3717,39 @@
   ],
   "enums": [
     {
+      "id": "EUBotPhysicsBackendStatus",
+      "displayName": "EUBot Physics Backend Status",
+      "module": "UBotPhysics",
+      "header": "Source/UBotPhysics/Public/UBotPhysicsTypes.h",
+      "tooltip": "Runtime condition of one backend's complete World-local scene.",
+      "values": [
+        {
+          "id": "Failed",
+          "displayName": "Failed",
+          "value": 3,
+          "tooltip": "Model/scene update or numerical execution failed. Last published state is retained."
+        },
+        {
+          "id": "Missing",
+          "displayName": "Missing",
+          "value": 0,
+          "tooltip": "No solver has been created, or it has been unregistered."
+        },
+        {
+          "id": "Overrun",
+          "displayName": "Overrun",
+          "value": 2,
+          "tooltip": "A continuous-time solver exceeded its frame budget. Explicit whole-backend reset is required."
+        },
+        {
+          "id": "Ready",
+          "displayName": "Ready",
+          "value": 1,
+          "tooltip": "The solver may advance on the simulation clock."
+        }
+      ]
+    },
+    {
       "id": "EUBotPhysicsBindingStatus",
       "displayName": "EUBot Physics Binding Status",
       "module": "UBotPhysics",
@@ -1613,6 +3779,135 @@
           "displayName": "Unbound",
           "value": 0,
           "tooltip": "Not bound: Bind was not called yet, or Unbind was."
+        }
+      ]
+    },
+    {
+      "id": "EUBotPhysicsDriveType",
+      "displayName": "EUBot Physics Drive Type",
+      "module": "UBotPhysics",
+      "header": "Source/UBotPhysics/Public/UBotPhysicsModel.h",
+      "tooltip": "Physical drive model; the controller which supplies its input lives outside Physics.",
+      "values": [
+        {
+          "id": "Effort",
+          "displayName": "Effort",
+          "value": 0,
+          "tooltip": ""
+        },
+        {
+          "id": "Position",
+          "displayName": "Position",
+          "value": 1,
+          "tooltip": ""
+        },
+        {
+          "id": "Velocity",
+          "displayName": "Velocity",
+          "value": 2,
+          "tooltip": ""
+        }
+      ]
+    },
+    {
+      "id": "EUBotPhysicsGeometryType",
+      "displayName": "EUBot Physics Geometry Type",
+      "module": "UBotPhysics",
+      "header": "Source/UBotPhysics/Public/UBotPhysicsModel.h",
+      "tooltip": "Common collision and display geometry. Values are persistent; append only.",
+      "values": [
+        {
+          "id": "Box",
+          "displayName": "Box",
+          "value": 1,
+          "tooltip": ""
+        },
+        {
+          "id": "Capsule",
+          "displayName": "Capsule",
+          "value": 2,
+          "tooltip": ""
+        },
+        {
+          "id": "Convex",
+          "displayName": "Convex",
+          "value": 3,
+          "tooltip": ""
+        },
+        {
+          "id": "Cylinder",
+          "displayName": "Cylinder",
+          "value": 5,
+          "tooltip": ""
+        },
+        {
+          "id": "Ellipsoid",
+          "displayName": "Ellipsoid",
+          "value": 6,
+          "tooltip": ""
+        },
+        {
+          "id": "HeightField",
+          "displayName": "Height Field",
+          "value": 8,
+          "tooltip": ""
+        },
+        {
+          "id": "Plane",
+          "displayName": "Plane",
+          "value": 7,
+          "tooltip": ""
+        },
+        {
+          "id": "Sphere",
+          "displayName": "Sphere",
+          "value": 0,
+          "tooltip": ""
+        },
+        {
+          "id": "TriangleMesh",
+          "displayName": "Triangle Mesh",
+          "value": 4,
+          "tooltip": ""
+        }
+      ]
+    },
+    {
+      "id": "EUBotPhysicsJointType",
+      "displayName": "EUBot Physics Joint Type",
+      "module": "UBotPhysics",
+      "header": "Source/UBotPhysics/Public/UBotPhysicsModel.h",
+      "tooltip": "Generalized-coordinate joints. A body's parent is declared by the body, not by the joint.",
+      "values": [
+        {
+          "id": "Ball",
+          "displayName": "Ball",
+          "value": 3,
+          "tooltip": ""
+        },
+        {
+          "id": "Fixed",
+          "displayName": "Fixed",
+          "value": 0,
+          "tooltip": ""
+        },
+        {
+          "id": "Free",
+          "displayName": "Free",
+          "value": 4,
+          "tooltip": ""
+        },
+        {
+          "id": "Hinge",
+          "displayName": "Hinge",
+          "value": 1,
+          "tooltip": ""
+        },
+        {
+          "id": "Slide",
+          "displayName": "Slide",
+          "value": 2,
+          "tooltip": ""
         }
       ]
     }

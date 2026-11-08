@@ -9,6 +9,7 @@
 #include "GameFramework/Actor.h"
 #include "PhysicalMaterials/PhysicalMaterial.h"
 #include "PhysicsEngine/BodySetup.h"
+#include "PhysicsEngine/BodyInstance.h"
 #include "UBotBodyState.h"
 #include "UBotClock.h"
 #include "UBotExtensionRegistry.h"
@@ -34,6 +35,7 @@ namespace UBot::Physics::Private
     {
         UPrimitiveComponent* Component = nullptr;
         FName BodyName;
+        FString BodyId;
     };
 
     FString DescribeComponent(const UActorComponent* Component)
@@ -129,6 +131,7 @@ namespace UBot::Physics::Private
             }
             FResolvedBody& Body = OutBodies.AddDefaulted_GetRef();
             Body.Component = Primitive;
+            Body.BodyId = Binding.Model != nullptr && Binding.Model->Model.Bodies.Num() == 1 ? Binding.Model->Model.Bodies[0].Id : Primitive->GetName();
             return true;
         }
 
@@ -154,6 +157,7 @@ namespace UBot::Physics::Private
             FResolvedBody& Body = OutBodies.AddDefaulted_GetRef();
             Body.Component = Primitive;
             Body.BodyName = Entry.BodyName;
+            Body.BodyId = !Entry.ModelBodyId.IsEmpty() ? Entry.ModelBodyId : !Entry.BodyName.IsNone() ? Entry.BodyName.ToString() : Binding.Model != nullptr && Binding.Model->Model.Bodies.Num() == 1 ? Binding.Model->Model.Bodies[0].Id : Primitive->GetName();
         }
         return true;
     }
@@ -244,6 +248,7 @@ void UUBotPhysicsSubsystem::Deinitialize()
         ReleaseBody(Key);
     }
 
+    Models.Empty();
     Solvers.Empty();
     SceneRecords.Empty();
 
@@ -267,6 +272,11 @@ bool UUBotPhysicsSubsystem::BindBodies(UUBotPhysicsBindingComponent& Binding, FT
     using namespace UBot::Physics::Private;
 
     OutError = FText::GetEmpty();
+    if (Binding.GetWorld() != GetWorld())
+    {
+        OutError = LOCTEXT("BindingOtherWorld", "The physics binding belongs to a different world.");
+        return false;
+    }
     if (Binding.GetBindingStatus() == EUBotPhysicsBindingStatus::Bound)
     {
         return true;
@@ -344,6 +354,12 @@ bool UUBotPhysicsSubsystem::BindBodies(UUBotPhysicsBindingComponent& Binding, FT
         }
     }
 
+    if (Binding.Model != nullptr && !Owner->GetActorScale3D().Equals(FVector::OneVector, 1.e-6))
+    {
+        return Fail(EUBotPhysicsBindingStatus::Rejected,
+            LOCTEXT("ScaledModelInstance", "Model instances require unit world scale. Author the physical dimensions and inertia in the model source, then reimport it."));
+    }
+
     // 3. The solver. The backend's code runs here and may unregister or replace its own factory.
     EUBotPhysicsBindingStatus SolverFailure = EUBotPhysicsBindingStatus::Rejected;
     const int32 SlotIndex = FindOrCreateSolverSlotIndex(BackendName, Factory, Error, SolverFailure);
@@ -353,101 +369,155 @@ bool UUBotPhysicsSubsystem::BindBodies(UUBotPhysicsBindingComponent& Binding, FT
     }
     const TSharedPtr<IUBotPhysicsSolver> Solver = Solvers[SlotIndex].Solver;
 
-    // 4. Hand the bodies over one by one; the first refusal undoes the ones before it.
-    struct FHandedOver
+    // 4. Prepare one immutable model, then hand over the complete instance atomically.
+    if (Solvers[SlotIndex].Status != EUBotPhysicsBackendStatus::Ready)
     {
-        UPrimitiveComponent* Component = nullptr;
-        int32 Handle = INDEX_NONE;
-        bool bWasSimulatingPhysics = false;
-    };
-    TArray<FHandedOver> HandedOver;
-    // Takes back what was accepted so far, newest first, and gives the simulation flags back. The solver is held
-    // here, so it exists even when its backend was unregistered and the slot let it go.
-    const auto RollBack = [&Solver, &HandedOver]()
+        return Fail(EUBotPhysicsBindingStatus::Rejected, Solvers[SlotIndex].Error);
+    }
+    FUBotPhysicsModelInstanceDesc Desc;
+    Desc.InstanceId = ++NextModelInstanceId;
+    Desc.WorldTransform = FTransform(Owner->GetActorQuat(), Owner->GetActorLocation() / 100.0);
+    Desc.IsCurrent = [this, BackendName, Factory, Solver]() { return IsBackendCurrent(BackendName, Factory, Solver); };
+    if (Binding.Model != nullptr)
     {
-        for (int32 Index = HandedOver.Num() - 1; Index >= 0; --Index)
+        Desc.Model = Binding.Model->Model;
+        if (!Desc.Model.Validate(Error))
         {
-            Solver->RemoveBody(HandedOver[Index].Handle);
-            if (HandedOver[Index].bWasSimulatingPhysics)
-            {
-                HandedOver[Index].Component->SetSimulatePhysics(true);
-            }
+            return Fail(EUBotPhysicsBindingStatus::Rejected, Error);
         }
-        HandedOver.Reset();
-    };
+        if (Desc.Model.Extension != nullptr && Desc.Model.Extension->Backend != BackendName)
+        {
+            return Fail(EUBotPhysicsBindingStatus::Rejected, LOCTEXT("WrongModelBackend", "The model requires a different physics backend."));
+        }
+    }
+    UBot::Physics::FModelIdSet MappedBodies;
+    TArray<bool> WasSimulating;
     for (const FResolvedBody& Body : Resolved)
     {
-        UPrimitiveComponent* Component = Body.Component;
-        const bool bWasSimulating = Component->IsSimulatingPhysics();
-        if (bWasSimulating)
+        if (MappedBodies.Contains(Body.BodyId) || (Binding.Model != nullptr && !Desc.Model.Bodies.ContainsByPredicate(
+            [&Body](const FUBotPhysicsModelBody& Definition) { return Definition.Id.Equals(Body.BodyId, ESearchCase::CaseSensitive); })))
         {
-            Component->SetSimulatePhysics(false);
+            return Fail(EUBotPhysicsBindingStatus::Rejected, LOCTEXT("InvalidBodyMapping", "A model body mapping is duplicated or does not identify a body in the model."));
         }
-
-        FUBotPhysicsBodyDesc Desc;
-        Desc.Component = Component;
-        Desc.BodyName = Body.BodyName;
-        Desc.Binding = &Binding;
-        Desc.InitialWorldTransform = Component->GetComponentTransform();
-
-        FText BodyError;
-        const int32 Handle = Solver->AddBody(Desc, BodyError);
-        if (Handle >= 0)
+        MappedBodies.Add(Body.BodyId);
+        FUBotPhysicsModelBodyBindingDesc& Mapping = Desc.BodyBindings.AddDefaulted_GetRef();
+        Mapping.BodyId = Body.BodyId;
+        Mapping.Desc.Component = Body.Component;
+        Mapping.Desc.BodyName = Body.BodyName;
+        Mapping.Desc.Binding = &Binding;
+        Mapping.Desc.InitialWorldTransform = Body.Component->GetComponentTransform();
+        WasSimulating.Add(Body.Component->IsSimulatingPhysics());
+        if (Binding.Model == nullptr)
         {
-            HandedOver.Add({ Component, Handle, bWasSimulating });
-        }
-
-        // AddBody is the backend's code too. If it unregistered or replaced the backend, the body it just accepted
-        // (if it did) and the earlier ones go back, whatever else it answered.
-        if (!IsBackendCurrent(BackendName, Factory, Solver))
-        {
-            if (Handle < 0 && bWasSimulating)
+            FUBotPhysicsModelBody& Definition = Desc.Model.Bodies.AddDefaulted_GetRef();
+            Definition.Id = Body.BodyId;
+            Definition.MassKilograms = 0.0;
+            Definition.InertiaKilogramMetersSquared = FVector::ZeroVector;
+            const FTransform WorldPose(Body.Component->GetComponentQuat(), Body.Component->GetComponentLocation() / 100.0);
+            Definition.LocalTransform = WorldPose.GetRelativeTransform(Desc.WorldTransform);
+            if (const FBodyInstance* BodyInstance = Body.Component->GetBodyInstance())
             {
-                Component->SetSimulatePhysics(true);
+                const double Mass = BodyInstance->GetBodyMass();
+                const FVector Inertia = BodyInstance->GetBodyInertiaTensor() / 10000.0;
+                if (Mass > 0.0 && Inertia.GetMin() > 0.0)
+                {
+                    Definition.MassKilograms = Mass;
+                    Definition.InertiaKilogramMetersSquared = Inertia;
+                    const FTransform Inertial = BodyInstance->GetMassSpaceLocal();
+                    Definition.InertialTransform = FTransform(Inertial.GetRotation(), Inertial.GetLocation() / 100.0);
+                }
             }
-            RollBack();
-            return Fail(EUBotPhysicsBindingStatus::BackendMissing, MakeBackendLostWhileBindingText(BackendName));
-        }
-
-        if (Handle < 0)
-        {
-            if (bWasSimulating)
+            FUBotPhysicsModelJoint& Joint = Desc.Model.Joints.AddDefaulted_GetRef();
+            Joint.Id = Body.BodyId + TEXT(".free");
+            Joint.BodyId = Body.BodyId;
+            Joint.Type = EUBotPhysicsJointType::Free;
+            TArray<FUBotPhysicsShape> Shapes;
+            UBot::Physics::GetCollisionShapes(*Body.Component, Shapes);
+            for (int32 ShapeIndex = 0; ShapeIndex < Shapes.Num(); ++ShapeIndex)
             {
-                Component->SetSimulatePhysics(true);
+                const FUBotPhysicsShape& Shape = Shapes[ShapeIndex];
+                FUBotPhysicsModelGeometry& Geometry = Desc.Model.Geometries.AddDefaulted_GetRef();
+                Geometry.Id = FString::Printf(TEXT("%s.geom.%d"), *Body.BodyId, ShapeIndex);
+                Geometry.BodyId = Body.BodyId;
+                Geometry.Type = static_cast<EUBotPhysicsGeometryType>(Shape.Type);
+                Geometry.LocalTransform = Shape.LocalTransform;
+                Geometry.Size = Shape.Size;
+                Geometry.Vertices = Shape.Vertices;
+                Geometry.Indices = Shape.Indices;
             }
-            RollBack();
-
-            const FText Name = ComponentText(Component);
-            return Fail(EUBotPhysicsBindingStatus::Rejected, BodyError.IsEmpty()
-                ? FText::FormatNamed(LOCTEXT("BackendRefusedBody", "Physics backend '{Backend}' did not accept {Component}."),
-                    TEXT("Backend"), FText::FromName(BackendName), TEXT("Component"), Name)
-                : FText::FormatNamed(LOCTEXT("BackendRefusedBodyWhy", "Physics backend '{Backend}' did not accept {Component}: {Reason}"),
-                    TEXT("Backend"), FText::FromName(BackendName), TEXT("Component"), Name, TEXT("Reason"), BodyError));
         }
     }
-
-    // Everything was accepted: record it.
+    if (Binding.Model == nullptr)
+    {
+        Desc.Model.Revision = FGuid::NewGuid();
+    }
+    // Every component is kinematic before any backend registration callback.
+    for (int32 Index = 0; Index < Resolved.Num(); ++Index)
+    {
+        if (WasSimulating[Index]) { Resolved[Index].Component->SetSimulatePhysics(false); }
+    }
+    const auto RestoreSimulation = [&Resolved, &WasSimulating]()
+    {
+        for (int32 Index = 0; Index < Resolved.Num(); ++Index)
+        {
+            if (WasSimulating[Index] && IsValid(Resolved[Index].Component)) { Resolved[Index].Component->SetSimulatePhysics(true); }
+        }
+    };
+    FUBotPhysicsModelInstanceResult Result;
+    const bool bAccepted = Solver->AddModel(Desc, Result, Error);
+    if (!IsBackendCurrent(BackendName, Factory, Solver))
+    {
+        if (bAccepted) { FText Ignored; Solver->RemoveModel(Desc.InstanceId, Ignored); }
+        RestoreSimulation();
+        return Fail(EUBotPhysicsBindingStatus::BackendMissing, MakeBackendLostWhileBindingText(BackendName));
+    }
+    bool bValidResult = bAccepted && Result.Bodies.Num() == Resolved.Num();
+    TSet<int32> Handles;
+    for (const FResolvedBody& Body : Resolved)
+    {
+        const FUBotPhysicsModelBodyHandle* Handle = Result.Bodies.FindByPredicate([&Body](const FUBotPhysicsModelBodyHandle& Item) { return Item.BodyId.Equals(Body.BodyId, ESearchCase::CaseSensitive); });
+        if (Handle == nullptr || Handle->Handle < 0 || Handles.Contains(Handle->Handle)) { bValidResult = false; }
+        else { Handles.Add(Handle->Handle); }
+    }
+    if (!bValidResult)
+    {
+        if (bAccepted)
+        {
+            FText RemoveError;
+            if (!Solver->RemoveModel(Desc.InstanceId, RemoveError)) { SuspendBackend(BackendName, EUBotPhysicsBackendStatus::Failed, RemoveError); }
+        }
+        RestoreSimulation();
+        return Fail(EUBotPhysicsBindingStatus::Rejected, FText::FormatNamed(
+            LOCTEXT("BackendRefusedModel", "Physics backend '{Backend}' did not accept the model of '{Actor}': {Reason}"),
+            TEXT("Backend"), FText::FromName(BackendName), TEXT("Actor"), FText::FromString(GetNameSafe(Owner)),
+            TEXT("Reason"), Error.IsEmpty() ? LOCTEXT("InvalidModelResult", "The backend refused the model or returned invalid body handles.") : Error));
+    }
     FSolverSlot& Slot = Solvers[SlotIndex];
-    if (Slot.BodyCount == 0)
-    {
-        // The clock of an idle solver starts again with its first body.
-        Slot.bClockRunning = false;
-    }
+    if (Slot.BodyCount == 0) { Slot.bClockRunning = false; }
+    FModelSlot& ModelSlot = Models.Add(Desc.InstanceId);
+    ModelSlot.Backend = BackendName;
+    ModelSlot.Binding = &Binding;
+    ModelSlot.Revision = Desc.Model.Revision;
     TArray<TWeakObjectPtr<UPrimitiveComponent>> BoundComponents;
-    for (const FHandedOver& Item : HandedOver)
+    for (int32 Index = 0; Index < Resolved.Num(); ++Index)
     {
-        FBodySlot& Body = Bodies.Add(TObjectKey<UPrimitiveComponent>(Item.Component));
-        Body.Component = Item.Component;
+        const FResolvedBody& ResolvedBody = Resolved[Index];
+        const int32 Handle = Result.Bodies.FindByPredicate([&ResolvedBody](const FUBotPhysicsModelBodyHandle& Item) { return Item.BodyId.Equals(ResolvedBody.BodyId, ESearchCase::CaseSensitive); })->Handle;
+        const TObjectKey<UPrimitiveComponent> Key(ResolvedBody.Component);
+        FBodySlot& Body = Bodies.Add(Key);
+        Body.Component = ResolvedBody.Component;
         Body.Backend = BackendName;
-        Body.Handle = Item.Handle;
+        Body.Handle = Handle;
         Body.Binding = &Binding;
         Body.BindingKey = TObjectKey<UUBotPhysicsBindingComponent>(&Binding);
-        // Every hand-over is a new ownership, whatever handle the solver gave: see IsBodyOwnedBy.
         Body.Generation = ++NextBodyGeneration;
-        Body.bWasSimulatingPhysics = Item.bWasSimulatingPhysics;
-        BoundComponents.Add(Item.Component);
+        Body.bWasSimulatingPhysics = WasSimulating[Index];
+        Body.InstanceId = Desc.InstanceId;
+        ModelSlot.Components.Add(Key);
+        BoundComponents.Add(ResolvedBody.Component);
     }
-    Slot.BodyCount += HandedOver.Num();
+    Slot.BodyCount += Resolved.Num();
+    Binding.ModelInstanceId = Desc.InstanceId;
 
     Binding.SetBound(MoveTemp(BoundComponents));
     UBot::Physics::Private::ClearBindingFailure(Binding);
@@ -464,6 +534,8 @@ bool UUBotPhysicsSubsystem::FailBind(UUBotPhysicsBindingComponent& Binding, EUBo
 
 void UUBotPhysicsSubsystem::UnbindBodies(UUBotPhysicsBindingComponent& Binding)
 {
+    // A caller in another World must not clear a binding while its actual owner still simulates it.
+    if (Binding.GetWorld() != GetWorld()) { return; }
     const TObjectKey<UUBotPhysicsBindingComponent> BindingKey(&Binding);
     TArray<TObjectKey<UPrimitiveComponent>, TInlineAllocator<8>> Keys;
     for (const TPair<TObjectKey<UPrimitiveComponent>, FBodySlot>& Pair : Bodies)
@@ -511,6 +583,86 @@ bool UUBotPhysicsSubsystem::GetBodyState(const UPrimitiveComponent* Component, F
     return true;
 }
 
+bool UUBotPhysicsSubsystem::ApplyInputs(UUBotPhysicsBindingComponent& Binding, const FUBotPhysicsInputs& Inputs, FText& OutError)
+{
+    const FModelSlot* Model = Models.Find(Binding.ModelInstanceId);
+    FSolverSlot* Slot = Model != nullptr ? FindSolverSlot(Model->Backend) : nullptr;
+    if (Model == nullptr || Model->Binding.Get() != &Binding || Slot == nullptr || !Slot->Solver.IsValid() || Slot->Status != EUBotPhysicsBackendStatus::Ready)
+    {
+        OutError = LOCTEXT("InputsNotReady", "Physical inputs require a bound model and a ready backend.");
+        return false;
+    }
+    return Slot->Solver->ApplyInputs(Binding.ModelInstanceId, Inputs, OutError);
+}
+
+bool UUBotPhysicsSubsystem::GetJointState(const UUBotPhysicsBindingComponent& Binding, const FString& JointId, FUBotPhysicsJointState& OutState) const
+{
+    const FModelSlot* Model = Models.Find(Binding.ModelInstanceId);
+    const FSolverSlot* Slot = Model != nullptr ? FindSolverSlot(Model->Backend) : nullptr;
+    FUBotPhysicsJointState State;
+    if (Model == nullptr || Model->Binding.Get() != &Binding || Slot == nullptr || !Slot->bHasStepped || !Slot->Solver.IsValid()
+        || !Slot->Solver->GetJointState(Binding.ModelInstanceId, JointId, State))
+    {
+        return false;
+    }
+    State.TimestampSeconds = Slot->LastStepEndSeconds;
+    OutState = MoveTemp(State);
+    return true;
+}
+
+EUBotPhysicsBackendStatus UUBotPhysicsSubsystem::GetBackendStatus(FName Backend, FText& OutError) const
+{
+    const FSolverSlot* Slot = FindSolverSlot(Backend);
+    OutError = Slot != nullptr ? Slot->Error : FText::GetEmpty();
+    return Slot != nullptr && Slot->Solver.IsValid() ? Slot->Status : EUBotPhysicsBackendStatus::Missing;
+}
+
+void UUBotPhysicsSubsystem::SuspendBackend(FName Backend, EUBotPhysicsBackendStatus Status, const FText& Error)
+{
+    FSolverSlot* Slot = FindSolverSlot(Backend);
+    if (Slot == nullptr || !Slot->Solver.IsValid()) { return; }
+    Slot->Status = Status;
+    Slot->Error = Error;
+    UBot::Physics::Private::ReportBackendFailure(*this, Backend, Error);
+}
+
+bool UUBotPhysicsSubsystem::ResetBackend(FName Backend, FText& OutError)
+{
+    FSolverSlot* Slot = FindSolverSlot(Backend);
+    const TSharedPtr<IUBotPhysicsSolver> Solver = Slot != nullptr ? Slot->Solver : nullptr;
+    if (!Solver.IsValid())
+    {
+        OutError = LOCTEXT("ResetNoBackend", "No solver exists for this backend.");
+        return false;
+    }
+    for (const TPair<int64, FModelSlot>& Pair : Models)
+    {
+        if (Pair.Value.Backend == Backend)
+        {
+            const UUBotPhysicsBindingComponent* Binding = Pair.Value.Binding.Get();
+            if (Binding != nullptr && Binding->Model != nullptr && Binding->Model->Model.Revision != Pair.Value.Revision)
+            {
+                OutError = LOCTEXT("ModelChangedReset", "An instantiated model asset changed; unbind and bind it again before resetting the backend.");
+                return false;
+            }
+        }
+    }
+    const double Now = UBot::Clock::GetSimTimeSeconds(GetWorld());
+    if (!Solver->Reset(Now, OutError)) { SuspendBackend(Backend, EUBotPhysicsBackendStatus::Failed, OutError); return false; }
+    Slot = FindSolverSlot(Backend);
+    if (Slot == nullptr || Slot->Solver != Solver) { return false; }
+    Slot->DroppedBefore += Slot->Scheduler.GetDroppedSampleCount();
+    Slot->Scheduler.Reset(1.0 / Solver->GetStepSeconds(), Now + Solver->GetStepSeconds());
+    Slot->bClockRunning = Slot->BodyCount > 0;
+    Slot->bHasStepped = false;
+    Slot->LastStepEndSeconds = 0.0;
+    Slot->bWarnedNonFinite = false;
+    Slot->Status = EUBotPhysicsBackendStatus::Ready;
+    Slot->Error = FText::GetEmpty();
+    UBot::Physics::Private::ClearBackendFailure(*this, Backend);
+    return true;
+}
+
 void UUBotPhysicsSubsystem::AdvanceTo(double SimTimeSeconds)
 {
     using namespace UBot::Physics::Private;
@@ -521,6 +673,18 @@ void UUBotPhysicsSubsystem::AdvanceTo(double SimTimeSeconds)
     }
 
     ReleaseStaleBodies();
+    for (const TPair<int64, FModelSlot>& Pair : Models)
+    {
+        const UUBotPhysicsBindingComponent* Binding = Pair.Value.Binding.Get();
+        if (Binding != nullptr && Binding->Model != nullptr && Binding->Model->Model.Revision != Pair.Value.Revision)
+        {
+            FText CurrentError;
+            if (GetBackendStatus(Pair.Value.Backend, CurrentError) == EUBotPhysicsBackendStatus::Ready)
+            {
+                SuspendBackend(Pair.Value.Backend, EUBotPhysicsBackendStatus::Failed, LOCTEXT("LiveModelChanged", "A live model asset changed. Unbind changed instances, reset the backend, then bind their new revisions."));
+            }
+        }
+    }
 
     // The world's components are scanned once per call, and only when some solver is going to ask for them.
     if (IsSceneNeeded())
@@ -534,7 +698,7 @@ void UUBotPhysicsSubsystem::AdvanceTo(double SimTimeSeconds)
     {
         // Held here so that a solver cannot be destroyed in the middle of its own step.
         const TSharedPtr<IUBotPhysicsSolver> Solver = Solvers[SlotIndex].Solver;
-        if (!Solver.IsValid())
+        if (!Solver.IsValid() || Solvers[SlotIndex].Status != EUBotPhysicsBackendStatus::Ready)
         {
             continue;
         }
@@ -565,29 +729,33 @@ void UUBotPhysicsSubsystem::AdvanceTo(double SimTimeSeconds)
             continue;
         }
 
-        FSolverSlot& Slot = Solvers[SlotIndex];
+        const bool bContinuous = Solver->GetOverrunPolicy() == EUBotPhysicsOverrunPolicy::Suspend;
         double FirstDueSeconds = 0.0;
-        const int32 StepCount = Slot.Scheduler.ConsumeDueSteps(SimTimeSeconds, MaxStepsPerFrame, &FirstDueSeconds);
-        if (StepCount <= 0)
-        {
-            continue;
-        }
-
-        const double IntervalSeconds = Slot.Scheduler.GetIntervalSeconds();
+        const int32 StepCount = bContinuous ? MaxStepsPerFrame : Solvers[SlotIndex].Scheduler.ConsumeDueSteps(SimTimeSeconds, MaxStepsPerFrame, &FirstDueSeconds);
+        const double IntervalSeconds = Solvers[SlotIndex].Scheduler.GetIntervalSeconds();
         for (int32 StepIndex = 0; StepIndex < StepCount; ++StepIndex)
         {
-            // Never later than sim time, whatever the rounding of the grid says.
-            const double EndSeconds = FMath::Min(FirstDueSeconds + static_cast<double>(StepIndex) * IntervalSeconds, SimTimeSeconds);
-            Solver->Step(EndSeconds);
-
-            // The solver may have lost its backend while it stepped (the game thread unregistered it).
+            double EndSeconds = FirstDueSeconds + static_cast<double>(StepIndex) * IntervalSeconds;
+            if (bContinuous && !Solvers[SlotIndex].Scheduler.ConsumeNextDue(SimTimeSeconds, EndSeconds)) { break; }
+            EndSeconds = FMath::Min(EndSeconds, SimTimeSeconds);
+            FText Error;
+            const bool bSucceeded = Solver->Step(EndSeconds, Error);
             FSolverSlot& SteppedSlot = Solvers[SlotIndex];
-            if (SteppedSlot.Solver != Solver)
+            if (SteppedSlot.Solver != Solver) { break; }
+            if (!bSucceeded)
             {
+                SuspendBackend(SteppedSlot.Backend, EUBotPhysicsBackendStatus::Failed,
+                    Error.IsEmpty() ? LOCTEXT("StepFailed", "The physics backend failed to advance; its scene is suspended.") : Error);
                 break;
             }
             SteppedSlot.LastStepEndSeconds = EndSeconds;
             SteppedSlot.bHasStepped = true;
+        }
+        if (bContinuous && Solvers[SlotIndex].Solver == Solver && Solvers[SlotIndex].Status == EUBotPhysicsBackendStatus::Ready
+            && Solvers[SlotIndex].Scheduler.GetNextDueSeconds() <= SimTimeSeconds)
+        {
+            SuspendBackend(Solvers[SlotIndex].Backend, EUBotPhysicsBackendStatus::Overrun,
+                LOCTEXT("PhysicsOverrun", "The continuous-time physics backend exceeded its frame step budget. Reset the complete backend scene before resuming."));
         }
     }
 
@@ -762,43 +930,72 @@ int32 UUBotPhysicsSubsystem::FindOrCreateSolverSlotIndex(FName Backend, const TS
         Slot.bHasStepped = false;
         Slot.LastStepEndSeconds = 0.0;
         Slot.bWarnedNonFinite = false;
+        Slot.Status = EUBotPhysicsBackendStatus::Ready;
+        Slot.Error = FText::GetEmpty();
     }
     return SlotIndex;
 }
 
 void UUBotPhysicsSubsystem::ReleaseBody(TObjectKey<UPrimitiveComponent> Key)
 {
-    FBodySlot Body;
-    if (!Bodies.RemoveAndCopyValue(Key, Body))
+    if (const FBodySlot* Body = Bodies.Find(Key))
     {
-        return;
+        ReleaseModel(Body->InstanceId);
     }
+}
 
-    // A component that is no longer registered (its world is going away) has no Chaos body to give back.
-    UPrimitiveComponent* Component = Body.Component.Get();
-    const bool bRestore = Component != nullptr && Component->IsRegistered() && Body.bWasSimulatingPhysics;
-
-    FUBotBodyState LastState;
-    bool bHaveLastState = false;
-    if (FSolverSlot* Slot = FindSolverSlot(Body.Backend))
+void UUBotPhysicsSubsystem::ReleaseModel(int64 InstanceId)
+{
+    FModelSlot ModelSlot;
+    if (!Models.RemoveAndCopyValue(InstanceId, ModelSlot)) { return; }
+    struct FRestoredBody
     {
-        if (Slot->Solver.IsValid())
+        FBodySlot Body;
+        FUBotBodyState State;
+        bool bHasState = false;
+    };
+    TArray<FRestoredBody> Restored;
+    FSolverSlot* Slot = FindSolverSlot(ModelSlot.Backend);
+    const TSharedPtr<IUBotPhysicsSolver> Solver = Slot != nullptr ? Slot->Solver : nullptr;
+    // Remove all ownership records before calling backend or UE code; any stale pending write is invalid now.
+    for (const TObjectKey<UPrimitiveComponent>& Key : ModelSlot.Components)
+    {
+        FRestoredBody Item;
+        if (!Bodies.RemoveAndCopyValue(Key, Item.Body)) { continue; }
+        Item.bHasState = Solver.IsValid() && Slot->bHasStepped && Solver->GetBodyState(Item.Body.Handle, Item.State)
+            && !Item.State.LinearVelocityMetersPerSecond.ContainsNaN() && !Item.State.AngularVelocityRadiansPerSecond.ContainsNaN();
+        Restored.Add(MoveTemp(Item));
+    }
+    if (Slot != nullptr) { Slot->BodyCount = FMath::Max(0, Slot->BodyCount - Restored.Num()); }
+    if (Solver.IsValid())
+    {
+        FText Error;
+        if (!Solver->RemoveModel(InstanceId, Error))
         {
-            // The velocities go back to Chaos, so read them before the body leaves the solver.
-            bHaveLastState = bRestore && Slot->bHasStepped && Slot->Solver->GetBodyState(Body.Handle, LastState)
-                && !LastState.LinearVelocityMetersPerSecond.ContainsNaN() && !LastState.AngularVelocityRadiansPerSecond.ContainsNaN();
-            Slot->Solver->RemoveBody(Body.Handle);
+            SuspendBackend(ModelSlot.Backend, EUBotPhysicsBackendStatus::Failed, Error.IsEmpty() ? LOCTEXT("RemoveModelFailed", "The backend could not remove a model; its scene is suspended.") : Error);
         }
-        Slot->BodyCount = FMath::Max(Slot->BodyCount - 1, 0);
     }
-
-    if (bRestore)
+    for (const FRestoredBody& Item : Restored)
     {
+        UPrimitiveComponent* Component = Item.Body.Component.Get();
+        if (Component == nullptr || !Component->IsRegistered() || !Item.Body.bWasSimulatingPhysics) { continue; }
         Component->SetSimulatePhysics(true);
-        if (bHaveLastState)
+        if (Item.bHasState)
         {
-            Component->SetPhysicsLinearVelocity(LastState.LinearVelocityMetersPerSecond * 100.0);
-            Component->SetPhysicsAngularVelocityInRadians(LastState.AngularVelocityRadiansPerSecond);
+            Component = Item.Body.Component.Get();
+            if (Component != nullptr)
+            {
+                Component->SetPhysicsLinearVelocity(Item.State.LinearVelocityMetersPerSecond * 100.0);
+                Component->SetPhysicsAngularVelocityInRadians(Item.State.AngularVelocityRadiansPerSecond);
+            }
+        }
+    }
+    if (UUBotPhysicsBindingComponent* Binding = ModelSlot.Binding.Get())
+    {
+        if (Binding->ModelInstanceId == InstanceId)
+        {
+            Binding->SetUnbound();
+            UBot::Physics::Private::ClearBindingFailure(*Binding);
         }
     }
 }
@@ -845,9 +1042,12 @@ void UUBotPhysicsSubsystem::ReleaseBackend(FName Backend)
     if (FSolverSlot* Slot = FindSolverSlot(Backend))
     {
         // The slot stays: the dropped step count is kept, and the next solver of this backend reuses it.
+        UBot::Physics::Private::ClearBackendFailure(*this, Backend);
         Slot->Solver.Reset();
         Slot->Factory.Reset();
         Slot->Capabilities = FUBotPhysicsCapabilities();
+        Slot->Status = EUBotPhysicsBackendStatus::Missing;
+        Slot->Error = FText::GetEmpty();
         // The next solver of this backend gets the whole scene in its first update.
         Slot->KnownSceneBodies.Reset();
         Slot->SceneStats = FUBotPhysicsSceneStats();
@@ -1145,6 +1345,23 @@ void UUBotPhysicsSubsystem::RefreshSceneRecords()
 void UUBotPhysicsSubsystem::CollectOwnComponents(FName Backend, TSet<TObjectKey<UPrimitiveComponent>>& OutKeys) const
 {
     TArray<const USceneComponent*, TInlineAllocator<16>> Pending;
+    // Model-frame geometry is not attached below a moving body. Its generated display proxies still
+    // belong to that model, so they must not be reintroduced as foreign colliders in the same backend.
+    for (const TPair<int64, FModelSlot>& Pair : Models)
+    {
+        const UUBotPhysicsBindingComponent* Binding = Pair.Value.Binding.Get();
+        const AActor* Owner = Binding != nullptr ? Binding->GetOwner() : nullptr;
+        if (Pair.Value.Backend != Backend || Binding == nullptr || Binding->Model == nullptr || Owner == nullptr) { continue; }
+        TInlineComponentArray<UPrimitiveComponent*> Components;
+        Owner->GetComponents(Components);
+        for (const UPrimitiveComponent* Component : Components)
+        {
+            if (Component != nullptr && Component->ComponentHasTag(UBot::Physics::ModelGeometryTag))
+            {
+                OutKeys.Add(TObjectKey<UPrimitiveComponent>(Component));
+            }
+        }
+    }
     for (const TPair<TObjectKey<UPrimitiveComponent>, FBodySlot>& Pair : Bodies)
     {
         if (Pair.Value.Backend == Backend)
@@ -1256,18 +1473,26 @@ bool UUBotPhysicsSubsystem::DeliverScene(int32 SlotIndex, const TSharedPtr<IUBot
     Update.Added.Sort([](const FUBotPhysicsSceneBody& A, const FUBotPhysicsSceneBody& B) { return A.Id < B.Id; });
     Update.KinematicPoses.Sort([](const FUBotPhysicsScenePose& A, const FUBotPhysicsScenePose& B) { return A.Id < B.Id; });
 
-    // The slot knows what the solver is about to be told before the solver is called.
-    Slot.KnownSceneBodies = MoveTemp(Eligible);
-    Slot.SceneStats = Stats;
-
     if (Update.Removed.IsEmpty() && Update.Added.IsEmpty() && Update.KinematicPoses.IsEmpty())
     {
+        Slot.KnownSceneBodies = MoveTemp(Eligible);
+        Slot.SceneStats = Stats;
         return true;
     }
 
     // The backend's code: Slot is not used again, and the slot may have lost the solver by the time this returns.
-    Solver->UpdateScene(Update);
-    return Solvers.IsValidIndex(SlotIndex) && Solvers[SlotIndex].Solver == Solver;
+    FText Error;
+    const bool bSucceeded = Solver->UpdateScene(Update, Error);
+    if (!Solvers.IsValidIndex(SlotIndex) || Solvers[SlotIndex].Solver != Solver) { return false; }
+    if (!bSucceeded)
+    {
+        SuspendBackend(Solvers[SlotIndex].Backend, EUBotPhysicsBackendStatus::Failed,
+            Error.IsEmpty() ? LOCTEXT("SceneUpdateFailed", "The physics scene could not be updated; its backend is suspended.") : Error);
+        return false;
+    }
+    Solvers[SlotIndex].KnownSceneBodies = MoveTemp(Eligible);
+    Solvers[SlotIndex].SceneStats = Stats;
+    return true;
 }
 
 #undef LOCTEXT_NAMESPACE

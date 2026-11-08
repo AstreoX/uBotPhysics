@@ -31,12 +31,12 @@ public:
 class FMySolver final : public IUBotPhysicsSolver
 {
 public:
-    virtual int32 AddBody(const FUBotPhysicsBodyDesc& Desc, FText& OutError) override;
-    virtual void RemoveBody(int32 BodyHandle) override;
+    virtual bool AddModel(const FUBotPhysicsModelInstanceDesc& Desc, FUBotPhysicsModelInstanceResult& Result, FText& Error) override;
+    virtual bool RemoveModel(int64 InstanceId, FText& Error) override;
     virtual double GetStepSeconds() const override;
-    virtual void Step(double StepEndTimeSeconds) override;
+    virtual bool Step(double StepEndTimeSeconds, FText& Error) override;
     virtual bool GetBodyState(int32 BodyHandle, FUBotBodyState& OutState) const override;
-    virtual void UpdateScene(const FUBotPhysicsSceneUpdate& Update) override;   // 可选，默认什么也不做
+    virtual bool UpdateScene(const FUBotPhysicsSceneUpdate& Update, FText& Error) override; // 可选，默认成功且不处理场景
 };
 ```
 
@@ -52,6 +52,18 @@ public:
 - **坐标。** 后端内部用右手系时，用 UBotCore 的 `UBot::RightHanded` 在 UE 轴和后端轴之间换算。
 - **`UpdateScene`。** 只有工厂的能力声明了 `bStaticSceneGeometry`（收静态物体）或 `bKinematicForeignBodies`（收运动学物体）才会被调用，两项都没有就永远不会；求解器没有物体时也不调用。每帧最多一次，在这一帧的 `Step` 之前，有变化或者有运动学物体时才调用。`FUBotPhysicsSceneUpdate` 里：`SimTimeSeconds` 是这一帧的仿真时间；`Removed` 是离开这个求解器场景的物体 ID，先于 `Added` 处理；`Added` 是新进入场景的物体（`FUBotPhysicsSceneBody`：ID、组件的弱指针、静态还是运动学、物体坐标系在世界里的变换、形状、摩擦和弹性）；`KinematicPoses` 是更新之后这个求解器场景里**所有**运动学物体（刚加入的也在内）当前的位姿。ID 只指向一个组件的一次导出：组件的 Body Setup、世界缩放或 Mobility 变了，旧 ID 先随 `Removed` 离开，新的导出带新 ID 加入。后端的物体不会出现在自己的场景里，附着在它们下面的组件也不会。
 - **形状和单位。** `FUBotPhysicsShape` 的单位是米，轴是 UE 世界轴，已经含组件的世界缩放，变换里没有缩放：`Sphere` 的 `Size.X` 是半径；`Box` 的 `Size` 是半边长；`Capsule` 的 `Size.X` 是半径，`Size.Z` 是两个球心距离的一半，轴是形状自己的 Z；`Convex` 的 `Vertices` 是凸包的点集；`TriangleMesh` 的 `Vertices` 和 `Indices`（每三个下标一个三角形）在物体坐标系里。`LocalTransform` 是形状相对物体坐标系的变换，凸包和三角网格是单位变换。后端给自己的物体取形状时，用同一个函数 `UBot::Physics::GetCollisionShapes(Component, OutShapes, OutSkippedShapes)`，导出的是 Chaos 模拟的那些形状；组件没有可导出的形状或类型不支持（蒙皮网格、实例化静态网格）时返回 `false`。
-- **控制。** 不在这个接口里。后端自己的组件实现 UBotCore 的执行器接口，把指令直接送给自己的求解器。
+- **物理输入。** `ApplyInputs` 接受具名执行器输入、广义力、刚体外力和运动学目标；输入整组校验后替换该实例的 held inputs。执行器动力学由模型决定，控制算法、轨迹和失联策略属于外层组件。
 
 `UBot::Physics::FindBackendFactory(Name)` 和 `UBot::Physics::GetBackendNames()` 查询已注册的后端。
+
+## 0.2.0 模型级接口
+
+`AddModel` 接收完整公共模型、模型实例 ID、SI 世界放置变换及显示组件映射。无显示组件的刚体仍属于物理模型。只有全部编译和映射成功才提交；失败必须保留既有模型及状态。`RemoveModel` 以模型实例为单位移除，任一绑定组件失效时整个实例解除所有权。模型级后端无需实现逐体 helper。
+
+默认 `AddModel` 是自由刚体后端的便利实现：它仅接受独立 free bodies，调用 `AddBody` / `RemoveBody` 并整组回滚；关节系统、驱动或专属扩展均明确拒绝。回调中的注销和替换防御仍然有效。
+
+`Step` 和 `UpdateScene` 返回 `false` 时设置错误，子系统暂停该后端，保留成功状态及其时间戳。场景记录只在成功交付后提交。`GetOverrunPolicy` 默认 `Drop`；需要连续原生时间的后端返回 `Suspend`，超预算时不丢步而进入 `Overrun`，直到显式 `ResetBackend` 重置该世界的整个后端场景及所有实例。失败和超预算状态可通过蓝图库查询。
+
+`GetJointState` 分别返回位置坐标和速度坐标；球关节是 4/3，自由关节是 7/6。公共 `State` 是查询结果，内部执行状态由求解器维护，外部初始化或重置必须显式调用对应操作。
+
+公共模型、字段归属及显示流程见 [MODELS.md](MODELS.md)。本次扩展改变实验性 C++ 虚表，必须统一重编译所有后端；版本号保持未发布的 0.2.0。

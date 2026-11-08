@@ -37,4 +37,12 @@ public:
      */
     UFUNCTION(BlueprintPure, Category = "uBot|Physics", meta = (WorldContext = "WorldContextObject", DisplayName = "Get Physics Scene Stats", Keywords = "scene collider static kinematic mocap geometry"))
     static bool GetPhysicsSceneStats(const UObject* WorldContextObject, FName Backend, FUBotPhysicsSceneStats& Stats);
+
+    /** Runtime condition of the complete backend scene; Error explains a suspension. */
+    UFUNCTION(BlueprintPure, Category = "uBot|Physics", meta = (WorldContext = "WorldContextObject"))
+    static EUBotPhysicsBackendStatus GetPhysicsBackendStatus(const UObject* WorldContextObject, FName Backend, FText& Error);
+
+    /** Resets every model of this backend and starts a new simulation-time epoch. */
+    UFUNCTION(BlueprintCallable, Category = "uBot|Physics", meta = (WorldContext = "WorldContextObject"))
+    static bool ResetPhysicsBackend(const UObject* WorldContextObject, FName Backend, FText& Error);
 };

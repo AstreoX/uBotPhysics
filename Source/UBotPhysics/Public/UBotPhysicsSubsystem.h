@@ -95,6 +95,18 @@ public:
      */
     bool GetBodyState(const UPrimitiveComponent* Component, FUBotBodyState& OutState) const;
 
+    /** Replace physical inputs for a bound model. No high-level command interpretation is performed. */
+    bool ApplyInputs(UUBotPhysicsBindingComponent& Binding, const FUBotPhysicsInputs& Inputs, FText& OutError);
+
+    /** Last published joint state of a bound model; false before its first successful step. */
+    bool GetJointState(const UUBotPhysicsBindingComponent& Binding, const FString& JointId, FUBotPhysicsJointState& OutState) const;
+
+    /** Runtime state and failure reason for a backend scene. */
+    EUBotPhysicsBackendStatus GetBackendStatus(FName Backend, FText& OutError) const;
+
+    /** Explicitly resets every model in the backend and starts a new time epoch at current uBot sim time. */
+    bool ResetBackend(FName Backend, FText& OutError);
+
     /**
      * Steps every solver up to SimTimeSeconds, then writes the poses of all bound bodies back to their
      * components. Called once per frame by the tick function; public for tests.
@@ -181,6 +193,8 @@ private:
         TSet<int64> KnownSceneBodies;
         /** What the solver sees of the scene as of its last update (SkippedComponents is not kept here). */
         FUBotPhysicsSceneStats SceneStats;
+        EUBotPhysicsBackendStatus Status = EUBotPhysicsBackendStatus::Ready;
+        FText Error;
     };
 
     /** A component handed to a backend. */
@@ -201,6 +215,16 @@ private:
         int64 Generation = 0;
         /** Chaos simulated the component before the hand-over. */
         bool bWasSimulatingPhysics = false;
+        int64 InstanceId = INDEX_NONE;
+    };
+
+    /** One atomic model lifetime; all its displayed components leave together. */
+    struct FModelSlot
+    {
+        FName Backend;
+        TWeakObjectPtr<UUBotPhysicsBindingComponent> Binding;
+        TArray<TObjectKey<UPrimitiveComponent>> Components;
+        FGuid Revision;
     };
 
     /**
@@ -264,6 +288,8 @@ private:
 
     /** Takes one body back from its solver and restores the component. */
     void ReleaseBody(TObjectKey<UPrimitiveComponent> Key);
+    void ReleaseModel(int64 InstanceId);
+    void SuspendBackend(FName Backend, EUBotPhysicsBackendStatus Status, const FText& Error);
 
     /** Releases the bodies whose component or binding no longer exists. */
     void ReleaseStaleBodies();
@@ -304,6 +330,8 @@ private:
     TArray<FSolverSlot> Solvers;
     /** Keyed by object key, not by address: a destroyed component's address can be reused by another object. */
     TMap<TObjectKey<UPrimitiveComponent>, FBodySlot> Bodies;
+    TMap<int64, FModelSlot> Models;
+    int64 NextModelInstanceId = 0;
     FDelegateHandle ExtensionsChangedHandle;
     /** Last hand-over generation given out; counts up for the life of the subsystem, never reused. */
     int64 NextBodyGeneration = 0;

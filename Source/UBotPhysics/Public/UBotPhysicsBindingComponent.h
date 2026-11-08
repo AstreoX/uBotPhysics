@@ -4,6 +4,7 @@
 #include "Components/ActorComponent.h"
 #include "UBotBodyState.h"
 #include "UBotPhysicsTypes.h"
+#include "UBotPhysicsModel.h"
 #include "UBotPhysicsBindingComponent.generated.h"
 
 class UPrimitiveComponent;
@@ -33,6 +34,10 @@ public:
     /** Backend that simulates the bodies: the name an extension is registered under at the UBotPhysics.Backend extension point. Read when Bind is called. */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Physics")
     FName Backend;
+
+    /** Optional immutable common model. Empty builds independent free bodies from the components' collision geometry. */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Physics")
+    TObjectPtr<UUBotPhysicsModelAsset> Model;
 
     /** The bodies to hand over; each must be a component of this actor. Empty: the owner's root component, which must be a primitive component. */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Physics")
@@ -66,6 +71,16 @@ public:
     UFUNCTION(BlueprintPure, Category = "uBot|Physics", meta = (DisplayName = "Get Bound Physics Components"))
     TArray<UPrimitiveComponent*> GetBoundComponents() const;
 
+    /** World-local model instance identity. It changes on every successful Bind and is invalid when unbound. */
+    UFUNCTION(BlueprintPure, Category = "uBot|Physics")
+    int64 GetModelInstanceId() const { return ModelInstanceId; }
+
+    /** Replaces this instance's held physical inputs. False when unbound, suspended, or input is invalid. */
+    bool ApplyInputs(const FUBotPhysicsInputs& Inputs, FText& OutError);
+
+    /** Last published generalized-coordinate joint state. False before any successful step. */
+    bool GetJointState(const FString& JointId, FUBotPhysicsJointState& OutState) const;
+
     //~ Begin UActorComponent interface
     virtual void BeginPlay() override;
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
@@ -91,4 +106,5 @@ private:
     EUBotPhysicsBindingStatus Status = EUBotPhysicsBindingStatus::Unbound;
     FText BindingError;
     TArray<TWeakObjectPtr<UPrimitiveComponent>> BoundComponents;
+    int64 ModelInstanceId = INDEX_NONE;
 };

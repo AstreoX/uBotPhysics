@@ -60,6 +60,23 @@ TArray<UPrimitiveComponent*> UUBotPhysicsBindingComponent::GetBoundComponents() 
     return Result;
 }
 
+bool UUBotPhysicsBindingComponent::ApplyInputs(const FUBotPhysicsInputs& Inputs, FText& OutError)
+{
+    UUBotPhysicsSubsystem* Subsystem = UUBotPhysicsSubsystem::Get(this);
+    if (Subsystem == nullptr)
+    {
+        OutError = LOCTEXT("InputsNoWorld", "No physics subsystem is available.");
+        return false;
+    }
+    return Subsystem->ApplyInputs(*this, Inputs, OutError);
+}
+
+bool UUBotPhysicsBindingComponent::GetJointState(const FString& JointId, FUBotPhysicsJointState& OutState) const
+{
+    const UUBotPhysicsSubsystem* Subsystem = UUBotPhysicsSubsystem::Get(this);
+    return Subsystem != nullptr && Subsystem->GetJointState(*this, JointId, OutState);
+}
+
 void UUBotPhysicsBindingComponent::BeginPlay()
 {
     Super::BeginPlay();
@@ -122,6 +139,7 @@ void UUBotPhysicsBindingComponent::SetBound(TArray<TWeakObjectPtr<UPrimitiveComp
 
 void UUBotPhysicsBindingComponent::SetFailed(EUBotPhysicsBindingStatus FailedStatus, const FText& Error)
 {
+    ModelInstanceId = INDEX_NONE;
     Status = FailedStatus;
     BindingError = Error;
     BoundComponents.Reset();
@@ -129,6 +147,7 @@ void UUBotPhysicsBindingComponent::SetFailed(EUBotPhysicsBindingStatus FailedSta
 
 void UUBotPhysicsBindingComponent::SetUnbound()
 {
+    ModelInstanceId = INDEX_NONE;
     Status = EUBotPhysicsBindingStatus::Unbound;
     BindingError = FText::GetEmpty();
     BoundComponents.Reset();

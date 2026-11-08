@@ -195,14 +195,27 @@ namespace UBotPhysicsTests
             return StepSeconds;
         }
 
-        virtual void Step(double StepEndTimeSeconds) override
+        virtual bool Step(double StepEndTimeSeconds, FText& OutError) override
         {
+            if (bFailStep) { OutError = INVTEXT("The test solver rejected this integration step."); return false; }
             CallLog.Add(ESolverCall::Step);
             StepEndTimes.Add(StepEndTimeSeconds);
             for (TPair<int32, FBody>& Pair : Bodies)
             {
                 ++Pair.Value.StepsTaken;
             }
+            return true;
+        }
+
+        virtual EUBotPhysicsOverrunPolicy GetOverrunPolicy() const override { return OverrunPolicy; }
+
+        virtual bool Reset(double SimTimeSeconds, FText& OutError) override
+        {
+            StepEndTimes.Reset();
+            for (TPair<int32, FBody>& Pair : Bodies) { Pair.Value.StepsTaken = 0; }
+            bFailStep = false;
+            bFailScene = false;
+            return true;
         }
 
         virtual bool GetBodyState(int32 BodyHandle, FUBotBodyState& OutState) const override
@@ -220,8 +233,9 @@ namespace UBotPhysicsTests
             return true;
         }
 
-        virtual void UpdateScene(const FUBotPhysicsSceneUpdate& Update) override
+        virtual bool UpdateScene(const FUBotPhysicsSceneUpdate& Update, FText& OutError) override
         {
+            if (bFailScene) { OutError = INVTEXT("The test solver rejected the scene update."); return false; }
             CallLog.Add(ESolverCall::UpdateScene);
             FSceneCall& Call = SceneCalls.AddDefaulted_GetRef();
             Call.Update = Update;
@@ -260,6 +274,7 @@ namespace UBotPhysicsTests
                     ++UnknownPoses;
                 }
             }
+            return true;
         }
 
         /** Number of scene bodies of Kind the solver knows. */
@@ -308,6 +323,9 @@ namespace UBotPhysicsTests
         }
 
         double StepSeconds = 0.01;
+        bool bFailStep = false;
+        bool bFailScene = false;
+        EUBotPhysicsOverrunPolicy OverrunPolicy = EUBotPhysicsOverrunPolicy::Drop;
         TArray<double> StepEndTimes;
         int32 AddCalls = 0;
         int32 RemoveCalls = 0;
